@@ -71,51 +71,11 @@
             </button>
           </div>
         </div>
-        <div class="workspace">
-          <section
-            id="photo-grid"
-            class="photo-grid density-compact"
-            aria-label="照片组"
-          ></section>
-          <aside class="inspector" aria-live="polite">
-            <div id="inspector-empty" class="inspector-empty">
-              从左侧选择一个 photo group 开始审核。
-            </div>
-            <div id="inspector-content" hidden>
-              <img id="preview-image" class="preview-image" alt="" />
-              <p id="inspector-kicker" class="inspector-kicker"></p>
-              <h2 id="inspector-name"></h2>
-              <p id="inspector-reasons" class="inspector-reasons"></p>
-              <div class="metric-row">
-                <span>FOCUS <b id="metric-focus">—</b></span
-                ><span>EXPOSURE <b id="metric-exposure">—</b></span
-                ><span>TECHNICAL <b id="metric-technical">—</b></span>
-              </div>
-              <div class="inspector-actions">
-                <div class="action-pair">
-                  <button id="pick-button" type="button">
-                    精选 <kbd>1</kbd></button
-                  ><button id="keep-button" type="button">
-                    保留 <kbd>2</kbd>
-                  </button>
-                </div>
-                <div class="action-pair">
-                  <button id="reject-button" type="button">
-                    建议移出 <kbd>X</kbd></button
-                  ><button id="clear-decision-button" type="button">
-                    取消决定 <kbd>0</kbd>
-                  </button>
-                </div>
-                <button id="mark-button" class="mark-action" type="button">
-                  标记为待移动 <kbd>C</kbd>
-                </button>
-              </div>
-              <p class="keyboard-tip">
-                ← / → 相邻浏览 · Space / J 下一张未筛 · U 撤销上一步
-              </p>
-            </div>
-          </aside>
-        </div>
+        <section
+          id="photo-grid"
+          class="photo-grid density-compact"
+          aria-label="照片组"
+        ></section>
       </section>
       <section
         id="moved-panel"
@@ -138,28 +98,79 @@
         </div>
         <div id="moved-batch-list" class="moved-batch-list"></div>
       </section>
+      <section
+        id="photo-viewer"
+        class="photo-viewer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Photo Viewer"
+        tabindex="-1"
+        hidden
+      >
+        <header class="photo-viewer-toolbar">
+          <button id="viewer-close" class="secondary-action" type="button">
+            关闭大图
+          </button>
+          <p id="viewer-position" class="viewer-position" aria-live="polite"></p>
+          <div class="viewer-summary">
+            <p id="viewer-kicker" class="eyebrow"></p>
+            <h2 id="viewer-name"></h2>
+          </div>
+          <div class="viewer-review-actions" aria-label="审核决定">
+            <button id="viewer-pick" type="button">精选 <kbd>1</kbd></button>
+            <button id="viewer-keep" type="button">保留 <kbd>2</kbd></button>
+            <button id="viewer-reject" type="button">建议移出 <kbd>X</kbd></button>
+            <button id="viewer-clear-decision" type="button">
+              取消决定 <kbd>0</kbd>
+            </button>
+          </div>
+        </header>
+        <div class="photo-viewer-stage">
+          <button
+            id="viewer-previous"
+            class="viewer-navigation"
+            type="button"
+            aria-label="上一张"
+          >
+            ←
+          </button>
+          <figure class="viewer-figure">
+            <img id="viewer-image" class="viewer-image" alt="" />
+            <figcaption id="viewer-reasons" class="viewer-reasons"></figcaption>
+          </figure>
+          <button
+            id="viewer-next"
+            class="viewer-navigation"
+            type="button"
+            aria-label="下一张"
+          >
+            →
+          </button>
+        </div>
+        <footer class="photo-viewer-footer">
+          <div id="viewer-filmstrip" class="viewer-filmstrip" aria-label="当前筛选结果"></div>
+          <p class="keyboard-tip">
+            ← / → 相邻浏览 · Space / J 下一张未筛 · Esc 关闭大图
+          </p>
+        </footer>
+      </section>
     </main>
     <footer class="review-rail">
       <span id="review-count">未打开文件夹</span>
-      <div>
-        <button
-          id="previous-button"
-          class="secondary-action"
-          type="button"
-          disabled
-        >
-          上一张 ←</button
-        ><button
-          id="next-button"
-          class="secondary-action"
-          type="button"
-          disabled
-        >
-          下一张 →</button
-        ><button id="move-button" class="move-action" type="button" disabled>
-          移动标记项 <span id="marked-count">0</span>
+      <section
+        id="action-selection-bar"
+        class="action-selection-bar"
+        aria-label="批量选择"
+        hidden
+      >
+        <span id="action-selection-count">已选 0 个 photo group</span>
+        <button id="clear-action-selection" class="secondary-action" type="button">
+          取消选择
         </button>
-      </div>
+        <button id="move-button" class="move-action" type="button" disabled>
+          移动已选项
+        </button>
+      </section>
     </footer>
     <script type="module" src="./site.js"></script>
   </body>

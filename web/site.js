@@ -1,5 +1,6 @@
 import { BrowserPhotoAnalyzer } from "./modules/photo-analysis.js";
 import { BrowserReviewStore } from "./modules/browser-store.js";
+import { GalleryInteraction } from "./modules/gallery-interaction.js";
 import {
   browserCapabilities,
   ReviewWorkspace,
@@ -17,28 +18,28 @@ const elements = Object.fromEntries(
     "empty-state",
     "workbench",
     "photo-grid",
-    "inspector-empty",
-    "inspector-content",
-    "preview-image",
-    "inspector-kicker",
-    "inspector-name",
-    "inspector-reasons",
-    "metric-focus",
-    "metric-exposure",
-    "metric-technical",
-    "pick-button",
-    "keep-button",
-    "reject-button",
-    "clear-decision-button",
-    "mark-button",
-    "previous-button",
-    "next-button",
     "move-button",
-    "marked-count",
     "review-count",
+    "action-selection-bar",
+    "action-selection-count",
+    "clear-action-selection",
     "moved-panel",
     "close-moved-button",
     "moved-batch-list",
+    "photo-viewer",
+    "viewer-close",
+    "viewer-position",
+    "viewer-kicker",
+    "viewer-name",
+    "viewer-image",
+    "viewer-reasons",
+    "viewer-previous",
+    "viewer-next",
+    "viewer-pick",
+    "viewer-keep",
+    "viewer-reject",
+    "viewer-clear-decision",
+    "viewer-filmstrip",
   ].map((id) => [id, byId(id)]),
 );
 const filters = [...document.querySelectorAll("[data-filter]")];
@@ -50,8 +51,19 @@ const workspace = new ReviewWorkspace({
   analyzer: (groups, options) => analyzer.analyze(groups, options),
 });
 let state = null;
+let gallery = null;
 let previewUrls = [];
 let decisionHistory = [];
+const decisionLabels = {
+  pick: "精选",
+  keep: "保留",
+  reject: "建议移出",
+};
+const filterLabels = {
+  all: "全部",
+  unreviewed: "未筛",
+  ...decisionLabels,
+};
 function setStatus(message) {
   elements["workspace-status"].textContent = message;
 }
@@ -59,32 +71,31 @@ function clearUrls() {
   previewUrls.splice(0).forEach(URL.revokeObjectURL);
 }
 function currentGroup() {
+  const viewer = gallery?.viewerState();
   return (
-    state?.photoGroups.find((group) => group.id === state.selected) ?? null
+    state?.photoGroups.find((group) => group.id === viewer?.photoGroupId) ??
+    null
   );
 }
 function decisionFor(group) {
   return state?.review.decisions[group.id] ?? null;
 }
 function visibleGroups() {
-  if (!state) return [];
-  return state.photoGroups.filter((group) => {
-    const decision = decisionFor(group);
-    return (
-      state.filter === "all" ||
-      (state.filter === "unreviewed" ? !decision : decision === state.filter)
-    );
-  });
+  return gallery?.visiblePhotoGroups() ?? [];
 }
 function neighbor(direction) {
   const visible = visibleGroups();
-  const index = visible.findIndex((group) => group.id === state?.selected);
+  const index = visible.findIndex(
+    (group) => group.id === gallery?.viewerState()?.photoGroupId,
+  );
   return index < 0 ? null : (visible[index + direction] ?? null);
 }
 function nextUnreviewed() {
   if (!state) return null;
+  const group = currentGroup();
+  if (!group) return null;
   const index = state.photoGroups.findIndex(
-    (group) => group.id === state.selected,
+    (photoGroup) => photoGroup.id === group.id,
   );
   return (
     state.photoGroups
@@ -95,29 +106,51 @@ function nextUnreviewed() {
 function reviewPayload() {
   return {
     decisions: state.review.decisions,
-    selectedId: state.selected,
+    selectedId: null,
     candidates: state.review.candidates,
-    marked: [...state.marked],
+    marked: [],
     filter: state.filter,
     density: state.density,
   };
 }
 async function persistReview() {
   state.review = await workspace.saveReview(reviewPayload());
-  state.marked = new Set(state.review.marked);
 }
 function buttonSelected(button, selected) {
   button.classList.toggle("active", selected);
+}
+function activeFilterButton() {
+  return filters.find((button) => button.dataset.filter === state?.filter) ?? null;
+}
+function restoreViewerReturn(returnTarget, fallback = activeFilterButton()) {
+  if (!returnTarget) return;
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: returnTarget.scrollY ?? window.scrollY });
+    const returnElement = document.getElementById(returnTarget.focusId);
+    (returnElement ?? fallback)?.focus({ preventScroll: true });
+  });
 }
 function renderGrid() {
   clearUrls();
   const visible = visibleGroups();
   elements["photo-grid"].className = `photo-grid density-${state.density}`;
+  if (!visible.length) {
+    const empty = document.createElement("p");
+    empty.className = "grid-empty";
+    empty.setAttribute("role", "status");
+    empty.textContent = `没有符合“${filterLabels[state.filter]}”筛选条件的 photo group。`;
+    elements["photo-grid"].replaceChildren(empty);
+    return;
+  }
   elements["photo-grid"].replaceChildren(
     ...visible.map((group) => {
+      const item = document.createElement("article");
+      const selected = gallery.actionSelection.has(group.id);
+      item.className = `photo-group-card${selected ? " action-selected" : ""}`;
       const card = document.createElement("button");
       card.type = "button";
-      card.className = `photo-card${group.id === state.selected ? " selected" : ""}${state.marked.has(group.id) ? " marked" : ""}`;
+      card.id = `photo-card:${group.id}`;
+      card.className = "photo-card";
       const image = document.createElement("img");
       const url = URL.createObjectURL(
         group.analysis.thumbnail ?? group.analysisFile,
@@ -130,45 +163,92 @@ function renderGrid() {
       filename.textContent = group.analysisFile.name;
       const meta = document.createElement("small");
       meta.className = `analysis-${group.analysis.status}`;
-      meta.textContent = `${group.analysis.status.toUpperCase()} · F ${Math.round(group.analysis.sharpness)}${state.marked.has(group.id) ? " · 待移动" : ""}`;
-      detail.append(filename, meta);
+      meta.textContent = `${group.analysis.status.toUpperCase()} · F ${Math.round(group.analysis.sharpness)}`;
+      const decision = decisionFor(group);
+      if (decision) {
+        const reviewDecision = document.createElement("small");
+        reviewDecision.className = `review-decision review-decision-${decision}`;
+        reviewDecision.textContent = decisionLabels[decision];
+        detail.append(filename, meta, reviewDecision);
+      } else detail.append(filename, meta);
       card.append(image, detail);
       card.addEventListener("click", () => {
-        state.selected = group.id;
+        gallery.open(group.id, {
+          focusId: card.id,
+          scrollY: window.scrollY,
+        });
         render();
-        persistReview().catch(showError);
+        requestAnimationFrame(() => elements["viewer-close"].focus());
       });
-      return card;
+      const selection = document.createElement("button");
+      selection.type = "button";
+      selection.className = "selection-toggle";
+      selection.setAttribute(
+        "aria-label",
+        `${selected ? "取消选择" : "选择"} ${group.analysisFile.name}`,
+      );
+      selection.setAttribute("aria-pressed", String(selected));
+      selection.textContent = selected ? "✓" : "○";
+      selection.addEventListener("click", (event) => {
+        gallery.toggleSelection(group.id, { range: event.shiftKey });
+        render();
+      });
+      item.append(card, selection);
+      return item;
     }),
   );
 }
-function renderInspector() {
+function renderViewer() {
+  const viewer = gallery?.viewerState();
   const group = currentGroup();
-  elements["inspector-empty"].hidden = !!group;
-  elements["inspector-content"].hidden = !group;
-  if (!group) return;
+  elements["photo-viewer"].hidden = !viewer || !group;
+  if (!viewer || !group) return;
   const previewUrl = URL.createObjectURL(group.analysisFile);
   previewUrls.push(previewUrl);
-  elements["preview-image"].src = previewUrl;
-  elements["preview-image"].alt = `${group.analysisFile.name} 全分辨率预览`;
-  elements["inspector-kicker"].textContent =
+  elements["viewer-image"].src = previewUrl;
+  elements["viewer-image"].alt = `${group.analysisFile.name} 全分辨率预览`;
+  elements["viewer-position"].textContent = `${viewer.index + 1} / ${viewer.total}`;
+  elements["viewer-kicker"].textContent =
     `${group.analysis.status.toUpperCase()} · ${group.members.length} 个成员${group.hasRaw ? " · RAW" : ""}`;
-  elements["inspector-name"].textContent = group.analysisFile.name;
-  elements["inspector-reasons"].textContent = group.analysis.reasons.join("；");
-  elements["metric-focus"].textContent = group.analysis.sharpness.toFixed(1);
-  elements["metric-exposure"].textContent =
-    group.analysis.exposureScore.toFixed(1);
-  elements["metric-technical"].textContent =
-    group.analysis.technicalScore.toFixed(1);
+  elements["viewer-name"].textContent = group.analysisFile.name;
+  elements["viewer-reasons"].textContent = group.analysis.reasons.join("；");
+  elements["viewer-previous"].disabled = !viewer.canGoPrevious;
+  elements["viewer-next"].disabled = !viewer.canGoNext;
   for (const [button, decision] of [
-    [elements["pick-button"], "pick"],
-    [elements["keep-button"], "keep"],
-    [elements["reject-button"], "reject"],
+    [elements["viewer-pick"], "pick"],
+    [elements["viewer-keep"], "keep"],
+    [elements["viewer-reject"], "reject"],
   ])
     buttonSelected(button, decisionFor(group) === decision);
-  elements["mark-button"].textContent = state.marked.has(group.id)
-    ? "取消待移动标记 C"
-    : "标记为待移动 C";
+  elements["viewer-clear-decision"].disabled = !decisionFor(group);
+  elements["viewer-filmstrip"].replaceChildren(
+    ...gallery.visiblePhotoGroups().map((photoGroup) => {
+      const thumbnail = document.createElement("button");
+      thumbnail.type = "button";
+      thumbnail.className = `viewer-thumbnail${photoGroup.id === group.id ? " selected" : ""}`;
+      thumbnail.setAttribute("aria-label", `查看 ${photoGroup.analysisFile.name}`);
+      thumbnail.setAttribute(
+        "aria-current",
+        photoGroup.id === group.id ? "true" : "false",
+      );
+      const image = document.createElement("img");
+      const thumbnailUrl = URL.createObjectURL(
+        photoGroup.analysis.thumbnail ?? photoGroup.analysisFile,
+      );
+      previewUrls.push(thumbnailUrl);
+      image.src = thumbnailUrl;
+      image.alt = "";
+      thumbnail.append(image);
+      thumbnail.addEventListener("click", () => {
+        gallery.goTo(photoGroup.id);
+        render();
+      });
+      return thumbnail;
+    }),
+  );
+  elements["viewer-filmstrip"]
+    .querySelector('[aria-current="true"]')
+    ?.scrollIntoView({ block: "nearest", inline: "center" });
 }
 function renderMovedBatches() {
   const batches = state?.movedBatches ?? [];
@@ -216,7 +296,6 @@ function renderMovedBatches() {
   );
 }
 function renderControls() {
-  const selected = currentGroup();
   filters.forEach((button) =>
     buttonSelected(button, button.dataset.filter === state.filter),
   );
@@ -225,27 +304,48 @@ function renderControls() {
   );
   elements["moved-count"].textContent = state.movedBatches.length;
   elements["moved-groups-button"].disabled = !state.movedBatches.length;
-  elements["marked-count"].textContent = state.marked.size;
-  elements["move-button"].disabled = !state.marked.size;
-  elements["previous-button"].disabled = !neighbor(-1);
-  elements["next-button"].disabled = !neighbor(1);
+  const selectedCount = gallery.selectedPhotoGroupIds().length;
+  elements["action-selection-bar"].hidden = !selectedCount;
+  elements["action-selection-count"].textContent =
+    `已选 ${selectedCount} 个 photo group`;
+  elements["move-button"].disabled = !selectedCount;
   elements["review-count"].textContent =
-    `${state.photoGroups.length} 个当前 photo group · ${visibleGroups().length} 个可见 · ${state.marked.size} 个待移动`;
-  for (const name of [
-    "pick-button",
-    "keep-button",
-    "reject-button",
-    "clear-decision-button",
-    "mark-button",
-  ])
-    elements[name].disabled = !selected;
+    `${state.photoGroups.length} 个当前 photo group · ${visibleGroups().length} 个可见`;
 }
-function render() {
+function render({ viewerCloseFallback } = {}) {
   if (!state) return;
+  const viewerReturnTarget = gallery.update({
+    photoGroups: state.photoGroups,
+    filter: state.filter,
+    decisions: state.review.decisions,
+  });
   renderGrid();
-  renderInspector();
+  renderViewer();
   renderControls();
   renderMovedBatches();
+  restoreViewerReturn(viewerReturnTarget, viewerCloseFallback);
+  return viewerReturnTarget;
+}
+function moveViewer(direction) {
+  const before = gallery?.viewerState();
+  const after = gallery?.move(direction);
+  if (!after) return;
+  if (after.photoGroupId === before?.photoGroupId)
+    setStatus(
+      direction > 0
+        ? "已经是当前筛选结果中的最后一张照片。"
+        : "已经是当前筛选结果中的第一张照片。",
+    );
+  render();
+}
+function closeViewer() {
+  const returnTarget = gallery?.close();
+  render();
+  if (!returnTarget) return;
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: returnTarget.scrollY ?? window.scrollY });
+    document.getElementById(returnTarget.focusId)?.focus({ preventScroll: true });
+  });
 }
 function showError(error) {
   setStatus(error instanceof Error ? error.message : "操作失败。");
@@ -253,12 +353,15 @@ function showError(error) {
 function applyScan(scan) {
   state = {
     ...scan,
-    selected: scan.review.selectedId ?? scan.photoGroups[0]?.id ?? null,
     filter: scan.review.filter,
     density: scan.review.density,
-    marked: new Set(scan.review.marked),
     review: scan.review,
   };
+  gallery = new GalleryInteraction({
+    photoGroups: state.photoGroups,
+    filter: state.filter,
+    decisions: state.review.decisions,
+  });
   elements["empty-state"].hidden = true;
   elements.workbench.hidden = false;
   elements["resume-folder"].hidden = false;
@@ -301,36 +404,39 @@ async function decide(decision) {
   decisionHistory.push({ ...reviewPayload() });
   if (decision) state.review.decisions[group.id] = decision;
   else delete state.review.decisions[group.id];
-  state.selected = next?.id ?? group.id;
   await persistReview();
-  render();
+  if (next) gallery.goTo(next.id);
+  const viewerReturnTarget = render();
+  if (viewerReturnTarget)
+    setStatus("当前大图不在新的筛选结果中，已关闭。");
 }
 async function undoDecision() {
   const previous = decisionHistory.pop();
   if (!previous) return;
   state.review = await workspace.saveReview(previous);
-  state.selected = state.review.selectedId;
   state.filter = state.review.filter;
   state.density = state.review.density;
-  state.marked = new Set(state.review.marked);
   render();
 }
-async function toggleMarked() {
-  const group = currentGroup();
-  if (!group) return;
-  decisionHistory.push({ ...reviewPayload() });
-  if (state.marked.has(group.id)) state.marked.delete(group.id);
-  else state.marked.add(group.id);
+async function changeFilter(button) {
+  state.filter = button.dataset.filter;
   await persistReview();
+  const returnTarget = render({ viewerCloseFallback: button });
+  if (!returnTarget) return;
+  setStatus("当前大图不在新的筛选结果中，已关闭。");
+}
+function clearActionSelection() {
+  gallery?.clearActionSelection();
   render();
 }
-async function moveMarked() {
-  if (!state?.marked.size) return;
-  const markedGroups = state.photoGroups.filter((group) =>
-    state.marked.has(group.id),
+async function moveActionSelection() {
+  const selectedIds = gallery?.selectedPhotoGroupIds() ?? [];
+  if (!selectedIds.length) return;
+  const selectedGroups = state.photoGroups.filter((group) =>
+    selectedIds.includes(group.id),
   );
-  const groupCount = markedGroups.length;
-  const fileCount = markedGroups.reduce(
+  const groupCount = selectedGroups.length;
+  const fileCount = selectedGroups.reduce(
     (count, group) => count + group.members.length,
     0,
   );
@@ -347,7 +453,7 @@ async function moveMarked() {
     `正在移动 ${groupCount} 个完整 photo group、共 ${fileCount} 个文件成员…`,
   );
   try {
-    await workspace.movePhotoGroups([...state.marked], {
+    await workspace.movePhotoGroups(selectedIds, {
       onProgress: ({
         filesDone,
         fileCount: totalFiles,
@@ -420,34 +526,20 @@ elements["moved-groups-button"].addEventListener("click", () => {
 elements["close-moved-button"].addEventListener("click", () => {
   elements["moved-panel"].hidden = true;
 });
-elements["previous-button"].addEventListener("click", () => {
-  const group = neighbor(-1);
-  if (group) {
-    state.selected = group.id;
-    render();
-    persistReview().catch(showError);
-  }
-});
-elements["next-button"].addEventListener("click", () => {
-  const group = neighbor(1);
-  if (group) {
-    state.selected = group.id;
-    render();
-    persistReview().catch(showError);
-  }
-});
-elements["move-button"].addEventListener("click", moveMarked);
-elements["pick-button"].addEventListener("click", () => decide("pick"));
-elements["keep-button"].addEventListener("click", () => decide("keep"));
-elements["reject-button"].addEventListener("click", () => decide("reject"));
-elements["clear-decision-button"].addEventListener("click", () => decide(null));
-elements["mark-button"].addEventListener("click", toggleMarked);
+elements["viewer-close"].addEventListener("click", closeViewer);
+elements["viewer-previous"].addEventListener("click", () => moveViewer(-1));
+elements["viewer-next"].addEventListener("click", () => moveViewer(1));
+elements["viewer-pick"].addEventListener("click", () => decide("pick"));
+elements["viewer-keep"].addEventListener("click", () => decide("keep"));
+elements["viewer-reject"].addEventListener("click", () => decide("reject"));
+elements["viewer-clear-decision"].addEventListener("click", () => decide(null));
+elements["clear-action-selection"].addEventListener(
+  "click",
+  clearActionSelection,
+);
+elements["move-button"].addEventListener("click", moveActionSelection);
 filters.forEach((button) =>
-  button.addEventListener("click", async () => {
-    state.filter = button.dataset.filter;
-    await persistReview();
-    render();
-  }),
+  button.addEventListener("click", () => changeFilter(button)),
 );
 densities.forEach((button) =>
   button.addEventListener("click", async () => {
@@ -463,38 +555,40 @@ reviewStore
   })
   .catch(() => {});
 document.addEventListener("keydown", (event) => {
-  if (!state || event.target.closest("button,input,textarea,select")) return;
+  if (!state || event.target.closest("input,textarea,select")) return;
   const key = event.key.toLowerCase();
-  if (event.key === "ArrowRight") {
+  if (event.key === "Escape" && gallery?.viewer) {
     event.preventDefault();
-    const group = neighbor(1);
-    if (group) {
-      state.selected = group.id;
-      render();
-      persistReview().catch(showError);
-    }
-  } else if (event.key === "ArrowLeft") {
+    closeViewer();
+  } else if (event.key === "ArrowRight" && gallery?.viewer) {
     event.preventDefault();
-    const group = neighbor(-1);
-    if (group) {
-      state.selected = group.id;
-      render();
-      persistReview().catch(showError);
-    }
-  } else if (event.code === "Space" || key === "j") {
+    moveViewer(1);
+  } else if (event.key === "ArrowLeft" && gallery?.viewer) {
     event.preventDefault();
-    const group = nextUnreviewed();
-    if (group) {
-      state.selected = group.id;
-      render();
-      persistReview().catch(showError);
-    }
-  } else if (event.key === "1") decide("pick");
-  else if (event.key === "2") decide("keep");
-  else if (key === "x") decide("reject");
-  else if (event.key === "0") decide(null);
-  else if (key === "u") undoDecision();
-  else if (key === "c") toggleMarked();
+    moveViewer(-1);
+  } else if ((event.code === "Space" || key === "j") && gallery?.viewer) {
+    if (
+      event.code === "Space" &&
+      event.target.closest("button, [role=button], a[href], input, select, textarea")
+    )
+      return;
+    event.preventDefault();
+    const next = nextUnreviewed();
+    if (!next) setStatus("没有下一个未筛的 photo group。");
+    else if (gallery.visiblePhotoGroups().some((group) => group.id === next.id))
+      gallery.goTo(next.id);
+    else
+      setStatus("下一个未筛项不在当前筛选结果中；请先切换到“未筛”继续。");
+    render();
+  } else if (event.key === "1" && gallery?.viewer) decide("pick");
+  else if (event.key === "2" && gallery?.viewer) decide("keep");
+  else if (key === "x" && gallery?.viewer) decide("reject");
+  else if (event.key === "0" && gallery?.viewer) decide(null);
+  else if (key === "u" && gallery?.viewer) undoDecision();
+  else if (event.key === "Escape" && gallery?.actionSelection.size) {
+    event.preventDefault();
+    clearActionSelection();
+  }
 });
 window.addEventListener("beforeunload", () => {
   clearUrls();

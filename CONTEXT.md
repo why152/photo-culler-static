@@ -23,3 +23,11 @@ _Avoid_: Trash, deletion batch
 **Movement journal**:
 The on-disk record of every member in a review batch and its restoration state. It makes interrupted operations discoverable and reversible.
 _Avoid_: Cache, browser history
+
+**Photo viewer**:
+The transient, immersive view of one analysis source and its surrounding visible photo groups. It is for browsing and making one photo group's review decision; it is not a review batch or a file-action confirmation.
+_Avoid_: Right-side inspector, selected photo
+
+**Action selection**:
+The temporary set of photo groups chosen from the photo grid for one explicit batch action. It is separate from the photo group currently shown in the photo viewer, every review decision, and every persisted review batch.
+_Avoid_: Marked photos, move list

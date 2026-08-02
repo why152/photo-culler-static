@@ -66,10 +66,8 @@ h2 {
   font-size: 27px;
 }
 .header-actions,
-.review-rail > div,
 .filter-group,
-.density-group,
-.action-pair {
+.density-group {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -78,9 +76,7 @@ h2 {
 .secondary-action,
 .move-action,
 .filter,
-.density,
-.action-pair button,
-.mark-action {
+.density {
   border-radius: 7px;
   min-height: 37px;
   padding: 8px 12px;
@@ -94,8 +90,7 @@ h2 {
 .secondary-action,
 .filter,
 .density,
-.action-pair button,
-.mark-action {
+.viewer-review-actions button {
   border: 1px solid #455044;
   background: #171c18;
   color: #d5dfd2;
@@ -153,12 +148,6 @@ h2 {
   color: #d9ff8c;
   background: #252d1d;
 }
-.workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(290px, 24vw);
-  gap: 25px;
-  align-items: start;
-}
 .photo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
@@ -167,6 +156,155 @@ h2 {
 .photo-grid.density-comfortable {
   grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
   gap: 14px;
+}
+.grid-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 56px 20px;
+  border: 1px dashed #4b554b;
+  border-radius: 10px;
+  color: #aeb8ac;
+  text-align: center;
+}
+.photo-viewer {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 100dvh;
+  padding: 18px 22px 24px;
+  background: #080a08;
+}
+.photo-viewer[hidden] {
+  display: none;
+}
+.photo-viewer-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  min-height: 54px;
+  padding: 0 0 15px;
+  border-bottom: 1px solid #384039;
+}
+.viewer-position {
+  margin: 0;
+  color: #b6c0b3;
+  font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.viewer-summary {
+  min-width: 0;
+  margin-left: auto;
+  text-align: right;
+}
+.viewer-summary .eyebrow {
+  margin-bottom: 4px;
+}
+.viewer-summary h2 {
+  overflow: hidden;
+  margin: 0;
+  font: 600 16px/1.2 Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.photo-viewer-stage {
+  display: grid;
+  grid-template-columns: minmax(46px, 0.2fr) minmax(0, 1fr) minmax(46px, 0.2fr);
+  align-items: center;
+  gap: 18px;
+  min-height: 0;
+  padding: 18px 0;
+}
+.viewer-review-actions {
+  display: flex;
+  flex-basis: 100%;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.viewer-review-actions button {
+  min-height: 34px;
+  border: 1px solid #455044;
+  border-radius: 7px;
+  padding: 6px 10px;
+  background: #171c18;
+  color: #d5dfd2;
+  font-size: 12px;
+}
+.viewer-review-actions button.active {
+  border-color: #b8ed43;
+  background: #252d1d;
+  color: #d9ff8c;
+}
+.photo-viewer-footer {
+  display: grid;
+  gap: 10px;
+  min-height: 84px;
+  padding-top: 12px;
+  border-top: 1px solid #384039;
+}
+.viewer-filmstrip {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 1px 2px;
+}
+.viewer-thumbnail {
+  flex: 0 0 56px;
+  width: 56px;
+  height: 48px;
+  overflow: hidden;
+  border: 1px solid #455044;
+  border-radius: 5px;
+  padding: 0;
+  background: #080a08;
+}
+.viewer-thumbnail.selected {
+  border-color: #b8ed43;
+  box-shadow: 0 0 0 1px #b8ed43;
+}
+.viewer-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.viewer-figure {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  justify-items: center;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+}
+.viewer-image {
+  display: block;
+  width: 100%;
+  max-width: min(100%, 1280px);
+  height: min(72dvh, 860px);
+  object-fit: contain;
+  background: #050605;
+}
+.viewer-reasons {
+  max-width: min(100%, 900px);
+  margin-top: 12px;
+  color: #aeb8ac;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.viewer-navigation {
+  width: 46px;
+  height: 58px;
+  border: 1px solid #455044;
+  border-radius: 50%;
+  background: #171c18;
+  color: #edf1ea;
+  font-size: 24px;
 }
 .photo-card {
   overflow: hidden;
@@ -177,12 +315,40 @@ h2 {
   color: #edf1ea;
   text-align: left;
 }
-.photo-card.selected {
+.photo-group-card {
+  position: relative;
+  min-width: 0;
+}
+.photo-group-card.action-selected .photo-card {
   border-color: #b8ed43;
   box-shadow: 0 0 0 1px #b8ed43;
 }
-.photo-card.marked {
-  border-color: #e48366;
+.selection-toggle {
+  position: absolute;
+  z-index: 1;
+  top: 7px;
+  left: 7px;
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid #eef3ed;
+  border-radius: 50%;
+  padding: 0;
+  background: rgb(12 15 13 / 0.72);
+  color: #edf1ea;
+  font-size: 15px;
+  opacity: 0;
+}
+.photo-group-card:hover .selection-toggle,
+.photo-group-card:focus-within .selection-toggle,
+.photo-group-card.action-selected .selection-toggle {
+  opacity: 1;
+}
+.photo-group-card.action-selected .selection-toggle {
+  border-color: #b8ed43;
+  background: #b8ed43;
+  color: #15200e;
 }
 .photo-card img {
   display: block;
@@ -218,89 +384,18 @@ h2 {
 .analysis-keep {
   color: #87ddbe !important;
 }
-.inspector {
-  position: sticky;
-  top: 15px;
-  min-height: 440px;
-  padding-left: 24px;
-  border-left: 1px solid #384039;
+.review-decision {
+  margin-top: 4px;
+  font-weight: 700;
 }
-.inspector-empty {
-  display: grid;
-  place-content: center;
-  min-height: 300px;
-  color: #919c91;
-  text-align: center;
-  font-size: 13px;
+.review-decision-pick {
+  color: #d9ff8c !important;
 }
-.preview-image {
-  display: block;
-  width: 100%;
-  aspect-ratio: 1/0.78;
-  object-fit: contain;
-  background: #080a08;
-  border: 1px solid #384039;
-  border-radius: 7px;
+.review-decision-keep {
+  color: #87ddbe !important;
 }
-.inspector-kicker {
-  margin: 14px 0 5px;
-  color: #b8ed43;
-  font:
-    600 10px ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  letter-spacing: 0.1em;
-}
-.inspector h2 {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 27px;
-}
-.inspector-reasons {
-  min-height: 38px;
-  margin: 10px 0;
-  color: #aeb8ac;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.metric-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  margin: 13px 0;
-  border-block: 1px solid #384039;
-}
-.metric-row span {
-  padding: 8px 5px 8px 0;
-  color: #8d988c;
-  font:
-    9px/1.4 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-}
-.metric-row b {
-  display: block;
-  color: #edf1ea;
-  font-size: 12px;
-}
-.inspector-actions {
-  display: grid;
-  gap: 8px;
-}
-.action-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-}
-.action-pair button,
-.mark-action {
-  min-height: 39px;
-  text-align: left;
-}
-.mark-action {
-  border-color: #875042;
-  color: #ffc0af;
+.review-decision-reject {
+  color: #ffa991 !important;
 }
 .keyboard-tip {
   margin: 15px 0 0;
@@ -335,6 +430,16 @@ kbd {
   backdrop-filter: blur(12px);
   color: #aeb8ac;
   font-size: 12px;
+}
+.action-selection-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.action-selection-bar[hidden] {
+  display: none;
 }
 .move-action {
   border: 0;
@@ -419,16 +524,35 @@ kbd {
     align-items: flex-start;
     flex-direction: column;
   }
-  .workspace {
-    display: block;
+  .photo-viewer {
+    padding: 12px;
   }
-  .inspector {
-    position: static;
-    min-height: auto;
-    margin-top: 22px;
-    padding: 22px 0 0;
-    border-left: 0;
-    border-top: 1px solid #384039;
+  .photo-viewer-toolbar {
+    gap: 8px;
+  }
+  .viewer-position {
+    justify-self: end;
+  }
+  .viewer-summary {
+    flex-basis: 100%;
+    margin-left: 0;
+    text-align: left;
+  }
+  .photo-viewer-stage {
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    gap: 4px;
+  }
+  .viewer-navigation {
+    width: 38px;
+    height: 48px;
+  }
+  .viewer-image {
+    height: min(68dvh, 760px);
+  }
+  .viewer-thumbnail {
+    flex-basis: 48px;
+    width: 48px;
+    height: 42px;
   }
   .review-rail {
     min-height: 96px;
@@ -436,7 +560,7 @@ kbd {
     flex-direction: column;
     padding: 10px 14px;
   }
-  .review-rail > div {
+  .action-selection-bar {
     width: 100%;
     justify-content: space-between;
   }
