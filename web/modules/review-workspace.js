@@ -320,7 +320,7 @@ export class ReviewWorkspace {
     return current;
   }
 
-  async resumeLastDirectory({ onProgress } = {}) {
+  async resumeLastDirectory({ onProgress, onAnalysis } = {}) {
     const directory = await this.reviewStore.loadLastDirectory?.();
     if (!directory) throw new Error("没有可继续的上次照片文件夹。");
     if (typeof directory.requestPermission === "function") {
@@ -330,7 +330,7 @@ export class ReviewWorkspace {
       if (permission !== "granted")
         throw new Error("需要重新授予该照片文件夹的读写权限。");
     }
-    return this.openDirectory(directory, { onProgress });
+    return this.openDirectory(directory, { onProgress, onAnalysis });
   }
 
   async saveReview(review) {

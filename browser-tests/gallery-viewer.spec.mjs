@@ -122,7 +122,7 @@ test("an empty review filter explains its result without creating a file action"
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
 
   await page.getByRole("button", { name: "精选" }).click();
-  await expect(page.getByRole("status")).toHaveText(
+  await expect(page.locator("#photo-grid").getByRole("status")).toHaveText(
     "没有符合“精选”筛选条件的 photo group。",
   );
   expect(await sourceEntryNames(page, sourceName)).toEqual(originalEntries);
@@ -148,7 +148,7 @@ test("Photo Viewer leaves Space to its focused controls and returns focus after 
   await card.click();
   await page.keyboard.press("1");
   await expect(viewer).toBeHidden();
-  await expect(page.getByRole("status")).toHaveText(
+  await expect(page.locator("#photo-grid").getByRole("status")).toHaveText(
     "没有符合“未筛”筛选条件的 photo group。",
   );
   await expect(page.getByRole("button", { name: "未筛" })).toBeFocused();
@@ -160,8 +160,8 @@ test("Photo Viewer restores the opening grid scroll position", async ({ page }) 
   await createPhotoSource(page, sourceName, 24);
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
   await expect(page.locator(".photo-card")).toHaveCount(24);
-  await expect(page.locator("#workspace-status")).toHaveText(
-    /JPEG 分析完成：24 \/ 24/,
+  await expect(page.getByRole("status", { name: "操作进度" })).toContainText(
+    "JPEG 分析完成",
   );
 
   const card = page.locator('[id="photo-card:photo-group:P1000024"]');

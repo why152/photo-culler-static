@@ -154,6 +154,58 @@ test("Review Workspace only resumes the last directory after it regains read-wri
   assert.equal(resumed.photoGroups.length, 1);
 });
 
+test("Review Workspace forwards progressive JPEG analysis when it resumes a directory", async () => {
+  const source = directoryHandle("camera-import", [fileHandle("P1000001.JPG")]);
+  source.requestPermission = async () => "granted";
+  const reviewStore = {
+    async load() {
+      return null;
+    },
+    async save() {},
+    async rememberDirectory() {},
+    async loadLastDirectory() {
+      return source;
+    },
+  };
+  const received = [];
+  const workspace = new ReviewWorkspace({
+    reviewStore,
+    analyzer: async (groups, { onResult }) => {
+      const analyzedGroup = {
+        ...groups[0],
+        analysis: {
+          status: "keep",
+          sharpness: 70,
+          exposureScore: 90,
+          technicalScore: 74,
+          reasons: ["完成"],
+          thumbnail: null,
+        },
+      };
+      onResult(analyzedGroup, 1, 1);
+      return [analyzedGroup];
+    },
+  });
+
+  const resumed = await workspace.resumeLastDirectory({
+    onAnalysis: (event) => received.push(event),
+  });
+  await resumed.analysisPromise;
+
+  assert.deepEqual(
+    received.map(({ done, total, complete, current }) => ({
+      done,
+      total,
+      complete,
+      status: current.photoGroups[0].analysis.status,
+    })),
+    [
+      { done: 1, total: 1, complete: false, status: "keep" },
+      { done: 1, total: 1, complete: true, status: "keep" },
+    ],
+  );
+});
+
 test("Review Workspace opens the review workbench before a slow analysis completes", async () => {
   const source = directoryHandle("camera-import", [fileHandle("P1000001.JPG")]);
   let resolveAnalysis;

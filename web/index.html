@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="light dark" />
     <title>Photo Culler Local</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="./site.css" />
@@ -11,8 +11,8 @@
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">LOCAL PHOTO REVIEW</p>
+        <div class="app-title">
+          <span class="app-symbol" aria-hidden="true">⌘</span>
           <h1>Photo Culler</h1>
         </div>
         <div class="header-actions">
@@ -37,10 +37,38 @@
           </button>
         </div>
       </header>
-      <section class="notice" aria-live="polite">
-        <p id="capability-status">正在检查浏览器能力…</p>
-        <p id="workspace-status">照片只会在你的电脑上读取和处理。</p>
+      <section
+        id="operation-feedback"
+        class="operation-feedback"
+        role="status"
+        aria-label="操作进度"
+        aria-live="polite"
+        data-mode="idle"
+      >
+        <span id="operation-indicator" class="operation-indicator" aria-hidden="true"></span>
+        <div class="operation-copy">
+          <p id="operation-title">本机处理</p>
+          <p id="workspace-status">照片只会在你的电脑上读取和处理。</p>
+        </div>
+        <div
+          id="operation-progress"
+          class="operation-progress"
+          role="progressbar"
+          aria-label="当前操作进度"
+          aria-valuetext="当前没有进行中的操作"
+        >
+          <span id="operation-progress-value"></span>
+        </div>
       </section>
+      <p id="capability-status" class="capability-status">正在检查浏览器能力…</p>
+      <p
+        id="interaction-status"
+        class="interaction-status"
+        role="status"
+        aria-label="浏览反馈"
+        aria-live="polite"
+        hidden
+      ></p>
       <section id="empty-state" class="empty-state">
         <p>选择一个由相机导入的单层照片目录开始。</p>
         <small
@@ -135,7 +163,12 @@
             ←
           </button>
           <figure class="viewer-figure">
-            <img id="viewer-image" class="viewer-image" alt="" />
+            <div id="viewer-image-frame" class="viewer-image-frame" aria-busy="false">
+              <p id="viewer-image-status" class="viewer-image-status" role="status" hidden>
+                正在呈现照片…
+              </p>
+              <img id="viewer-image" class="viewer-image" alt="" />
+            </div>
             <figcaption id="viewer-reasons" class="viewer-reasons"></figcaption>
           </figure>
           <button
@@ -164,6 +197,17 @@
         hidden
       >
         <span id="action-selection-count">已选 0 个 photo group</span>
+        <p
+          id="action-operation-feedback"
+          class="action-operation-feedback"
+          role="status"
+          aria-label="文件操作进度"
+          aria-live="polite"
+          hidden
+        >
+          <strong id="action-operation-title"></strong>
+          <span id="action-operation-detail"></span>
+        </p>
         <button id="clear-action-selection" class="secondary-action" type="button">
           取消选择
         </button>

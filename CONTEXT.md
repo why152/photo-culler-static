@@ -31,3 +31,7 @@ _Avoid_: Right-side inspector, selected photo
 **Action selection**:
 The temporary set of photo groups chosen from the photo grid for one explicit batch action. It is separate from the photo group currently shown in the photo viewer, every review decision, and every persisted review batch.
 _Avoid_: Marked photos, move list
+
+**Operation feedback**:
+The transient, local status for one background scan, JPEG analysis, movement, or restoration. It states the current stage and shows a determinate count only when the operation has a known total; it does not replace a review decision, action selection, or movement journal.
+_Avoid_: Global loading state, generic spinner
