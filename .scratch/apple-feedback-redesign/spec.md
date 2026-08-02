@@ -1,6 +1,6 @@
 # Apple 式照片审核反馈与视觉重设计规格
 
-**Status:** ready-for-agent
+**Status:** completed
 
 ## Problem Statement
 

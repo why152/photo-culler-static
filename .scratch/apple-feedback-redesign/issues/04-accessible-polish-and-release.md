@@ -4,13 +4,15 @@
 
 **Blocked by:** 02 — 内容优先的 grid 与 Photo viewer; 03 — 显式 Action selection 与文件操作反馈.
 
-**Status:** in_progress
+**Status:** completed
 
-- [ ] 所有反馈、选择、Viewer、筛选和文件动作有可见焦点、可访问名称及 `aria-live` 状态；图标命中区充分且状态不只靠颜色。
-- [ ] `prefers-reduced-motion` 下，状态、数字和进度完整可读而不依赖动画。
-- [ ] 常规 Node/Chrome 测试、语法/差异检查及有照片的视觉截图全部通过，未发生真实照片访问或网络上传。
-- [ ] 重设计提交到 main，GitHub Pages 工作流成功，公开站点以新提交返回页面与模块。
+- [x] 所有反馈、选择、Viewer、筛选和文件动作有可见焦点、可访问名称及 `aria-live` 状态；图标命中区充分且状态不只靠颜色。
+- [x] `prefers-reduced-motion` 下，状态、数字和进度完整可读而不依赖动画。
+- [x] 常规 Node/Chrome 测试、语法/差异检查及有照片的视觉截图全部通过，未发生真实照片访问或网络上传。
+- [x] 重设计提交到 main，GitHub Pages 工作流成功，公开站点以新提交返回页面与模块。
 
 ## Comments
 
 Created from the Apple HIG feedback and visual redesign specification.
+
+Verified after `79d32ed`: 20 Node tests, 13 Chrome tests, syntax and diff checks, plus local-browser screenshots of the populated grid, Viewer, narrow Viewer, and recoverable move result. Pages run `30754735564` completed successfully and the public page returned the redesigned modules.
