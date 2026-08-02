@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Photo Culler Local</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./site.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">LOCAL PHOTO REVIEW</p>
+          <h1>Photo Culler</h1>
+        </div>
+        <div class="header-actions">
+          <button
+            id="moved-groups-button"
+            class="secondary-action"
+            type="button"
+            disabled
+          >
+            已移动 <span id="moved-count">0</span>
+          </button>
+          <button
+            id="resume-folder"
+            class="secondary-action"
+            type="button"
+            hidden
+          >
+            继续上次筛选
+          </button>
+          <button id="choose-folder" class="primary-action" type="button">
+            选择照片文件夹
+          </button>
+        </div>
+      </header>
+      <section class="notice" aria-live="polite">
+        <p id="capability-status">正在检查浏览器能力…</p>
+        <p id="workspace-status">照片只会在你的电脑上读取和处理。</p>
+      </section>
+      <section id="empty-state" class="empty-state">
+        <p>选择一个由相机导入的单层照片目录开始。</p>
+        <small
+          >正式支持 macOS Chrome / Edge；需要 HTTPS
+          和你明确授予的本地目录权限。</small
+        >
+      </section>
+      <section id="workbench" hidden>
+        <div class="command-bar">
+          <div class="filter-group" role="group" aria-label="筛选">
+            <button class="filter active" type="button" data-filter="all">
+              全部</button
+            ><button class="filter" type="button" data-filter="unreviewed">
+              未筛</button
+            ><button class="filter" type="button" data-filter="pick">
+              精选</button
+            ><button class="filter" type="button" data-filter="keep">
+              保留</button
+            ><button class="filter" type="button" data-filter="reject">
+              建议移出
+            </button>
+          </div>
+          <div class="density-group" role="group" aria-label="缩略图密度">
+            <button class="density active" type="button" data-density="compact">
+              紧凑</button
+            ><button class="density" type="button" data-density="comfortable">
+              舒展
+            </button>
+          </div>
+        </div>
+        <div class="workspace">
+          <section
+            id="photo-grid"
+            class="photo-grid density-compact"
+            aria-label="照片组"
+          ></section>
+          <aside class="inspector" aria-live="polite">
+            <div id="inspector-empty" class="inspector-empty">
+              从左侧选择一个 photo group 开始审核。
+            </div>
+            <div id="inspector-content" hidden>
+              <img id="preview-image" class="preview-image" alt="" />
+              <p id="inspector-kicker" class="inspector-kicker"></p>
+              <h2 id="inspector-name"></h2>
+              <p id="inspector-reasons" class="inspector-reasons"></p>
+              <div class="metric-row">
+                <span>FOCUS <b id="metric-focus">—</b></span
+                ><span>EXPOSURE <b id="metric-exposure">—</b></span
+                ><span>TECHNICAL <b id="metric-technical">—</b></span>
+              </div>
+              <div class="inspector-actions">
+                <div class="action-pair">
+                  <button id="pick-button" type="button">
+                    精选 <kbd>1</kbd></button
+                  ><button id="keep-button" type="button">
+                    保留 <kbd>2</kbd>
+                  </button>
+                </div>
+                <div class="action-pair">
+                  <button id="reject-button" type="button">
+                    建议移出 <kbd>X</kbd></button
+                  ><button id="clear-decision-button" type="button">
+                    取消决定 <kbd>0</kbd>
+                  </button>
+                </div>
+                <button id="mark-button" class="mark-action" type="button">
+                  标记为待移动 <kbd>C</kbd>
+                </button>
+              </div>
+              <p class="keyboard-tip">
+                ← / → 相邻浏览 · Space / J 下一张未筛 · U 撤销上一步
+              </p>
+            </div>
+          </aside>
+        </div>
+      </section>
+      <section
+        id="moved-panel"
+        class="moved-panel"
+        hidden
+        aria-label="已移动的照片组"
+      >
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">RECOVERABLE REVIEW BATCHES</p>
+            <h2>已移动</h2>
+          </div>
+          <button
+            id="close-moved-button"
+            class="secondary-action"
+            type="button"
+          >
+            关闭
+          </button>
+        </div>
+        <div id="moved-batch-list" class="moved-batch-list"></div>
+      </section>
+    </main>
+    <footer class="review-rail">
+      <span id="review-count">未打开文件夹</span>
+      <div>
+        <button
+          id="previous-button"
+          class="secondary-action"
+          type="button"
+          disabled
+        >
+          上一张 ←</button
+        ><button
+          id="next-button"
+          class="secondary-action"
+          type="button"
+          disabled
+        >
+          下一张 →</button
+        ><button id="move-button" class="move-action" type="button" disabled>
+          移动标记项 <span id="marked-count">0</span>
+        </button>
+      </div>
+    </footer>
+    <script type="module" src="./site.js"></script>
+  </body>
+</html>

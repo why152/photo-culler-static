@@ -1,0 +1,14 @@
+{
+  "name": "photo-culler-static",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test web/tests/*.test.mjs && npm run test:browser",
+    "test:browser": "playwright test",
+    "check": "node --check web/site.js && node --check web/modules/*.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}
