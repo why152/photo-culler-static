@@ -11,6 +11,7 @@ const byId = (id) => document.getElementById(id);
 const elements = Object.fromEntries(
   [
     "choose-folder",
+    "empty-choose-folder",
     "resume-folder",
     "moved-groups-button",
     "moved-count",
@@ -24,6 +25,7 @@ const elements = Object.fromEntries(
     "interaction-status",
     "empty-state",
     "workbench",
+    "review-rail",
     "photo-grid",
     "move-button",
     "review-count",
@@ -103,6 +105,7 @@ function renderActionOperationFeedback(operation) {
 }
 function renderOperationFeedback(operation = operationFeedback.state()) {
   const progress = elements["operation-progress"];
+  elements["operation-feedback"].hidden = operation.mode === "idle";
   elements["operation-feedback"].dataset.mode = operation.mode;
   elements["operation-feedback"].setAttribute(
     "aria-busy",
@@ -427,6 +430,7 @@ function renderControls() {
     buttonSelected(button, button.dataset.density === state.density),
   );
   elements["moved-count"].textContent = state.movedBatches.length;
+  elements["moved-groups-button"].hidden = !state.movedBatches.length;
   elements["moved-groups-button"].disabled = !state.movedBatches.length;
   const selectedCount = gallery.selectedPhotoGroupIds().length;
   const fileOperation = operationFeedback.state();
@@ -509,7 +513,7 @@ function analysisFeedback(done, total, complete = false) {
   });
 }
 function setFolderActionsBusy(isBusy) {
-  for (const id of ["choose-folder", "resume-folder"]) {
+  for (const id of ["choose-folder", "empty-choose-folder", "resume-folder"]) {
     elements[id].disabled = isBusy;
     elements[id].setAttribute("aria-busy", String(isBusy));
   }
@@ -528,7 +532,9 @@ function applyScan(scan) {
   });
   elements["empty-state"].hidden = true;
   elements.workbench.hidden = false;
+  elements["review-rail"].hidden = false;
   elements["resume-folder"].hidden = false;
+  elements["choose-folder"].hidden = false;
   render();
 }
 async function openWorkspace(action) {
@@ -725,13 +731,18 @@ if (
   !capabilities.fileMove
 ) {
   elements["choose-folder"].disabled = true;
+  elements["empty-choose-folder"].disabled = true;
+  elements["capability-status"].hidden = false;
   elements["capability-status"].textContent =
     "此浏览器缺少安全的本地目录移动能力。请使用 HTTPS 下的最新版 macOS Chrome 或 Edge。";
-} else
-  elements["capability-status"].textContent =
-    "浏览器可请求本地目录权限。选择后，照片不会上传到服务器。";
-elements["choose-folder"].addEventListener("click", () =>
-  openWorkspace((options) => workspace.chooseDirectory(options)),
+} else elements["capability-status"].hidden = true;
+function choosePhotoDirectory() {
+  void openWorkspace((options) => workspace.chooseDirectory(options));
+}
+elements["choose-folder"].addEventListener("click", choosePhotoDirectory);
+elements["empty-choose-folder"].addEventListener(
+  "click",
+  choosePhotoDirectory,
 );
 elements["resume-folder"].addEventListener("click", () =>
   openWorkspace((options) => workspace.resumeLastDirectory(options)),

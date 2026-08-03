@@ -21,6 +21,7 @@
             class="secondary-action"
             type="button"
             disabled
+            hidden
           >
             已移动 <span id="moved-count">0</span>
           </button>
@@ -32,8 +33,8 @@
           >
             继续上次筛选
           </button>
-          <button id="choose-folder" class="primary-action" type="button">
-            选择照片文件夹
+          <button id="choose-folder" class="primary-action" type="button" hidden>
+            选择其他文件夹
           </button>
         </div>
       </header>
@@ -44,6 +45,7 @@
         aria-label="操作进度"
         aria-live="polite"
         data-mode="idle"
+        hidden
       >
         <span id="operation-indicator" class="operation-indicator" aria-hidden="true"></span>
         <div class="operation-copy">
@@ -60,7 +62,9 @@
           <span id="operation-progress-value"></span>
         </div>
       </section>
-      <p id="capability-status" class="capability-status">正在检查浏览器能力…</p>
+      <p id="capability-status" class="capability-status" hidden>
+        正在检查浏览器能力…
+      </p>
       <p
         id="interaction-status"
         class="interaction-status"
@@ -69,12 +73,23 @@
         aria-live="polite"
         hidden
       ></p>
-      <section id="empty-state" class="empty-state">
-        <p>选择一个由相机导入的单层照片目录开始。</p>
-        <small
-          >正式支持 macOS Chrome / Edge；需要 HTTPS
-          和你明确授予的本地目录权限。</small
+      <section
+        id="empty-state"
+        class="directory-entry"
+        aria-labelledby="directory-entry-title"
+      >
+        <span class="directory-entry-icon" aria-hidden="true">▦</span>
+        <h2 id="directory-entry-title">开始筛选照片</h2>
+        <p>选择一个由相机导入的照片文件夹。</p>
+        <button
+          id="empty-choose-folder"
+          class="primary-action directory-entry-action"
+          type="button"
+          aria-describedby="directory-entry-privacy"
         >
+          选择照片文件夹
+        </button>
+        <small id="directory-entry-privacy">照片仅在这台设备上读取和处理。</small>
       </section>
       <section id="workbench" hidden>
         <div class="command-bar">
@@ -188,7 +203,7 @@
         </footer>
       </section>
     </main>
-    <footer class="review-rail">
+    <footer id="review-rail" class="review-rail" hidden>
       <span id="review-count">未打开文件夹</span>
       <section
         id="action-selection-bar"

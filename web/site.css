@@ -180,6 +180,12 @@ h2 {
   background: color-mix(in srgb, var(--blue) 86%, #000);
 }
 
+.primary-action:not(:disabled):active {
+  background: color-mix(in srgb, var(--blue) 72%, #000);
+  box-shadow: none;
+  transform: translateY(1px);
+}
+
 .secondary-action,
 .filter,
 .density,
@@ -207,6 +213,10 @@ h2 {
   background: var(--surface);
   box-shadow: 0 1px 1px rgb(0 0 0 / 0.03);
   backdrop-filter: blur(20px) saturate(150%);
+}
+
+.operation-feedback[hidden] {
+  display: none;
 }
 
 .operation-indicator {
@@ -331,23 +341,27 @@ h2 {
   opacity: 0.34;
 }
 
-.empty-state,
+.directory-entry,
 .grid-empty {
   color: var(--secondary-text);
   text-align: center;
 }
 
-.empty-state {
+.directory-entry {
   display: grid;
-  min-height: 290px;
-  place-content: center;
-  padding: 28px;
-  border-radius: 18px;
-  background: var(--surface-solid);
-  box-shadow: var(--shadow);
+  width: min(100%, 390px);
+  justify-items: center;
+  gap: 6px;
+  margin: clamp(44px, 11vh, 108px) auto 0;
+  padding: 18px;
+  border: 1px solid var(--separator);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.04);
+  backdrop-filter: blur(20px) saturate(150%);
 }
 
-.empty-state[hidden],
+.directory-entry[hidden],
 .moved-panel[hidden],
 .interaction-status[hidden] {
   display: none;
@@ -371,30 +385,41 @@ h2 {
   backdrop-filter: blur(20px) saturate(150%);
 }
 
-.empty-state::before {
+.directory-entry-icon {
   display: grid;
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   place-items: center;
   justify-self: center;
-  margin: 0 auto 15px;
-  border-radius: 15px;
+  margin: 0;
+  border-radius: 13px;
   background: var(--blue-tint);
   color: var(--blue);
   content: "▦";
-  font-size: 26px;
+  font-size: 22px;
 }
 
-.empty-state p {
-  margin-bottom: 8px;
+.directory-entry h2 {
+  font-size: 20px;
+}
+
+.directory-entry p {
+  margin: 0;
   color: var(--text);
-  font-size: 17px;
-  font-weight: 600;
+  font-size: 14px;
 }
 
-.empty-state small {
-  max-width: 440px;
+.directory-entry-action {
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 10px 16px;
+}
+
+.directory-entry small {
+  max-width: 290px;
+  margin-top: 2px;
   color: var(--secondary-text);
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -836,6 +861,10 @@ kbd {
   color: var(--secondary-text);
   font-size: 12px;
   backdrop-filter: blur(20px) saturate(150%);
+}
+
+.review-rail[hidden] {
+  display: none;
 }
 
 .action-selection-bar {

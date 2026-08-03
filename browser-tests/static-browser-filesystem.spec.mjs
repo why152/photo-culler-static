@@ -10,9 +10,7 @@ test("static workbench uses Chrome's real local file APIs without photo network 
   await expect(
     page.getByRole("button", { name: "选择照片文件夹" }),
   ).toBeEnabled();
-  await expect(
-    page.getByText("浏览器可请求本地目录权限。选择后，照片不会上传到服务器。"),
-  ).toBeVisible();
+  await expect(page.locator("#capability-status")).toBeHidden();
   await expect(page).toHaveTitle("Photo Culler Local");
 
   const result = await page.evaluate(async () => {
