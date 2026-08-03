@@ -1,6 +1,6 @@
 # 首次目录入口规格
 
-**Status:** in_progress
+**Status:** completed
 
 ## Problem Statement
 

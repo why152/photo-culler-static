@@ -4,9 +4,15 @@
 
 **Blocked by:** 01 — 紧凑的首次目录入口.
 
-**Status:** in_progress
+**Status:** completed
 
 - [x] Node、Chrome、语法和差异检查通过；测试仅使用浏览器隔离目录，不读取或修改真实照片库。
 - [x] 已检查桌面和窄屏首次入口渲染。
 - [x] Standards 与 Spec 双轴审查无未解决阻断项。
-- [ ] 提交到 main，Pages 工作流成功，公开站点返回紧凑首次目录入口。
+- [x] 提交到 main，Pages 工作流成功，公开站点返回紧凑首次目录入口。
+
+## Release evidence
+
+- `2152d37` — `feat: streamline first-run directory entry`
+- [GitHub Pages workflow #30820746189](https://github.com/why152/photo-culler-static/actions/runs/30820746189) completed successfully for the same commit SHA.
+- Public Pages returned the compact directory-entry markup, its directory-picker event wiring, and the matching hide rules after a cache-busting fetch.
