@@ -609,7 +609,8 @@ h2 {
 
 .photo-group-card:hover .selection-toggle,
 .photo-group-card:focus-within .selection-toggle,
-.photo-group-card.action-selected .selection-toggle {
+.photo-group-card.action-selected .selection-toggle,
+.photo-group-card.reject-action-context .selection-toggle {
   opacity: 1;
 }
 
@@ -631,7 +632,7 @@ h2 {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-height: 100dvh;
-  padding: 14px 18px 18px;
+  padding: 10px 18px 12px;
   background: #000;
   color: #f5f5f7;
 }
@@ -645,7 +646,7 @@ h2 {
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  min-height: 46px;
+  min-height: 40px;
 }
 
 .photo-viewer .secondary-action,
@@ -687,8 +688,7 @@ h2 {
 
 .viewer-review-actions {
   display: flex;
-  flex-basis: 100%;
-  justify-content: center;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 6px;
 }
@@ -713,7 +713,7 @@ h2 {
   align-items: center;
   gap: 12px;
   min-height: 0;
-  padding: 12px 0;
+  padding: 6px 0;
 }
 
 .viewer-navigation {
@@ -746,7 +746,7 @@ h2 {
   display: block;
   width: 100%;
   max-width: min(100%, 1320px);
-  height: min(68dvh, 820px);
+  height: min(78dvh, 920px);
   object-fit: contain;
   background: #000;
 }
@@ -788,16 +788,17 @@ h2 {
 .photo-viewer-footer {
   display: grid;
   gap: 7px;
-  min-height: 78px;
+  min-height: 68px;
 }
 
 .viewer-filmstrip {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 7px;
   min-width: 0;
   overflow-x: auto;
   padding: 3px 2px;
+  scroll-padding-inline: 35%;
 }
 
 .viewer-thumbnail {
@@ -1058,6 +1059,11 @@ kbd {
     text-align: left;
   }
 
+  .viewer-review-actions {
+    flex-basis: 100%;
+    justify-content: center;
+  }
+
   .viewer-summary h2 {
     max-width: 100%;
   }
@@ -1068,7 +1074,7 @@ kbd {
   }
 
   .viewer-image {
-    height: min(61dvh, 680px);
+    height: min(74dvh, 720px);
   }
 
   .viewer-thumbnail {

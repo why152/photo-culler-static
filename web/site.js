@@ -31,6 +31,7 @@ const elements = Object.fromEntries(
     "review-count",
     "action-selection-bar",
     "action-selection-count",
+    "select-suggested-removals",
     "action-operation-feedback",
     "action-operation-title",
     "action-operation-detail",
@@ -67,7 +68,12 @@ const workspace = new ReviewWorkspace({
 });
 let state = null;
 let gallery = null;
-let previewUrls = [];
+const gridItems = new Map();
+const filmstripItems = new Map();
+const gridPreviewUrls = [];
+const filmstripPreviewUrls = [];
+const movedPreviewUrls = [];
+let viewerPreview = null;
 let decisionHistory = [];
 let operationCompletionTimer = null;
 let interactionStatusTimer = null;
@@ -156,8 +162,17 @@ function failOperation(operation) {
   clearTimeout(operationCompletionTimer);
   renderOperationFeedback(operationFeedback.fail(operation));
 }
+function revokeUrls(urls) {
+  urls.splice(0).forEach(URL.revokeObjectURL);
+}
 function clearUrls() {
-  previewUrls.splice(0).forEach(URL.revokeObjectURL);
+  revokeUrls(gridPreviewUrls);
+  revokeUrls(filmstripPreviewUrls);
+  revokeUrls(movedPreviewUrls);
+  if (viewerPreview) URL.revokeObjectURL(viewerPreview.url);
+  viewerPreview = null;
+  gridItems.clear();
+  filmstripItems.clear();
 }
 function currentGroup() {
   const viewer = gallery?.viewerState();
@@ -220,7 +235,6 @@ function restoreViewerReturn(returnTarget, fallback = activeFilterButton()) {
   });
 }
 function renderGrid() {
-  clearUrls();
   const visible = visibleGroups();
   elements["photo-grid"].className = `photo-grid density-${state.density}`;
   if (!visible.length) {
@@ -232,73 +246,98 @@ function renderGrid() {
     return;
   }
   elements["photo-grid"].replaceChildren(
-    ...visible.map((group) => {
-      const item = document.createElement("article");
-      const selected = gallery.actionSelection.has(group.id);
-      item.className = `photo-group-card${selected ? " action-selected" : ""}`;
-      const card = document.createElement("button");
-      card.type = "button";
-      card.id = `photo-card:${group.id}`;
-      const pendingPreview = !group.analysis.thumbnail;
-      card.className = `photo-card${pendingPreview ? " is-pending" : ""}`;
-      let preview = null;
-      if (pendingPreview) {
-        preview = document.createElement("div");
-        preview.className = "thumbnail-placeholder";
-        preview.setAttribute("aria-hidden", "true");
-        const shimmer = document.createElement("span");
-        shimmer.className = "thumbnail-placeholder-shimmer";
-        preview.append(shimmer);
-      } else {
-        preview = document.createElement("img");
-        const url = URL.createObjectURL(group.analysis.thumbnail);
-        previewUrls.push(url);
-        preview.src = url;
-        preview.alt = group.analysisFile.name;
-      }
-      const detail = document.createElement("div");
-      const filename = document.createElement("strong");
-      filename.textContent = group.analysisFile.name;
-      const meta = document.createElement("small");
-      meta.className = pendingPreview
-        ? "analysis-pending"
-        : `analysis-${group.analysis.status}`;
-      meta.textContent = pendingPreview
-        ? "正在准备预览"
-        : `${group.analysis.status.toUpperCase()} · F ${Math.round(group.analysis.sharpness)}`;
-      const decision = decisionFor(group);
-      if (decision) {
-        const reviewDecision = document.createElement("small");
-        reviewDecision.className = `review-decision review-decision-${decision}`;
-        reviewDecision.textContent = decisionLabels[decision];
-        detail.append(filename, meta, reviewDecision);
-      } else detail.append(filename, meta);
-      card.append(preview, detail);
-      card.addEventListener("click", () => {
-        gallery.open(group.id, {
-          focusId: card.id,
-          scrollY: window.scrollY,
-        });
-        render();
-        requestAnimationFrame(() => elements["viewer-close"].focus());
-      });
-      const selection = document.createElement("button");
-      selection.type = "button";
-      selection.className = "selection-toggle";
-      selection.setAttribute(
-        "aria-label",
-        `${selected ? "取消选择" : "选择"} ${group.analysisFile.name}`,
-      );
-      selection.setAttribute("aria-pressed", String(selected));
-      selection.textContent = selected ? "✓" : "○";
-      selection.addEventListener("click", (event) => {
-        gallery.toggleSelection(group.id, { range: event.shiftKey });
-        render();
-      });
-      item.append(card, selection);
-      return item;
-    }),
+    ...visible.map(renderGridItem),
   );
+}
+function createPreview(group) {
+  if (!group.analysis.thumbnail) {
+    const preview = document.createElement("div");
+    preview.className = "photo-card-preview thumbnail-placeholder";
+    preview.setAttribute("aria-hidden", "true");
+    const shimmer = document.createElement("span");
+    shimmer.className = "thumbnail-placeholder-shimmer";
+    preview.append(shimmer);
+    return preview;
+  }
+  const preview = document.createElement("img");
+  preview.className = "photo-card-preview";
+  const url = URL.createObjectURL(group.analysis.thumbnail);
+  gridPreviewUrls.push(url);
+  preview.src = url;
+  preview.alt = group.analysisFile.name;
+  return preview;
+}
+function renderGridItem(group) {
+  let item = gridItems.get(group.id);
+  if (!item) {
+    item = document.createElement("article");
+    item.dataset.photoGroupId = group.id;
+    const card = document.createElement("button");
+    card.type = "button";
+    card.id = `photo-card:${group.id}`;
+    card.className = "photo-card";
+    card.addEventListener("click", () => {
+      const photoGroup = state?.photoGroups.find(
+        ({ id }) => id === item.dataset.photoGroupId,
+      );
+      if (!photoGroup) return;
+      gallery.open(photoGroup.id, {
+        focusId: card.id,
+        scrollY: window.scrollY,
+      });
+      render();
+      requestAnimationFrame(() => elements["viewer-close"].focus());
+    });
+    const detail = document.createElement("div");
+    detail.className = "photo-card-detail";
+    const selection = document.createElement("button");
+    selection.type = "button";
+    selection.className = "selection-toggle";
+    selection.addEventListener("click", (event) => {
+      gallery.toggleSelection(item.dataset.photoGroupId, { range: event.shiftKey });
+      render();
+    });
+    item.append(card, selection);
+    card.append(detail);
+    gridItems.set(group.id, item);
+  }
+  const selected = gallery.actionSelection.has(group.id);
+  const card = item.querySelector(".photo-card");
+  const detail = item.querySelector(".photo-card-detail");
+  const selection = item.querySelector(".selection-toggle");
+  const pendingPreview = !group.analysis.thumbnail;
+  item.className = `photo-group-card${selected ? " action-selected" : ""}${state.filter === "reject" ? " reject-action-context" : ""}`;
+  card.className = `photo-card${pendingPreview ? " is-pending" : ""}`;
+  const preview = card.querySelector(".photo-card-preview");
+  if (!preview) card.insertBefore(createPreview(group), detail);
+  else if (
+    (pendingPreview && preview.tagName === "IMG") ||
+    (!pendingPreview && preview.tagName !== "IMG")
+  )
+    preview.replaceWith(createPreview(group));
+  const filename = document.createElement("strong");
+  filename.textContent = group.analysisFile.name;
+  const meta = document.createElement("small");
+  meta.className = pendingPreview
+    ? "analysis-pending"
+    : `analysis-${group.analysis.status}`;
+  meta.textContent = pendingPreview
+    ? "正在准备预览"
+    : `${group.analysis.status.toUpperCase()} · F ${Math.round(group.analysis.sharpness)}`;
+  const decision = decisionFor(group);
+  if (decision) {
+    const reviewDecision = document.createElement("small");
+    reviewDecision.className = `review-decision review-decision-${decision}`;
+    reviewDecision.textContent = decisionLabels[decision];
+    detail.replaceChildren(filename, meta, reviewDecision);
+  } else detail.replaceChildren(filename, meta);
+  selection.setAttribute(
+    "aria-label",
+    `${selected ? "取消选择" : "选择"} ${group.analysisFile.name}`,
+  );
+  selection.setAttribute("aria-pressed", String(selected));
+  selection.textContent = selected ? "✓" : "○";
+  return item;
 }
 function renderViewer() {
   const viewer = gallery?.viewerState();
@@ -309,24 +348,27 @@ function renderViewer() {
     elements["viewer-image-status"].hidden = true;
     return;
   }
-  const previewUrl = URL.createObjectURL(group.analysisFile);
-  previewUrls.push(previewUrl);
   const viewerImage = elements["viewer-image"];
-  elements["viewer-image-frame"].setAttribute("aria-busy", "true");
-  elements["viewer-image-status"].hidden = false;
-  elements["viewer-image-status"].textContent = `正在呈现 ${group.analysisFile.name}…`;
-  viewerImage.onload = () => {
-    if (viewerImage.src !== previewUrl) return;
-    elements["viewer-image-frame"].setAttribute("aria-busy", "false");
-    elements["viewer-image-status"].hidden = true;
-  };
-  viewerImage.onerror = () => {
-    if (viewerImage.src !== previewUrl) return;
-    elements["viewer-image-frame"].setAttribute("aria-busy", "false");
-    elements["viewer-image-status"].textContent = "无法呈现这张照片。";
+  if (viewerPreview?.photoGroupId !== group.id) {
+    if (viewerPreview) URL.revokeObjectURL(viewerPreview.url);
+    const url = URL.createObjectURL(group.analysisFile);
+    viewerPreview = { photoGroupId: group.id, url };
+    elements["viewer-image-frame"].setAttribute("aria-busy", "true");
     elements["viewer-image-status"].hidden = false;
-  };
-  viewerImage.src = previewUrl;
+    elements["viewer-image-status"].textContent = `正在呈现 ${group.analysisFile.name}…`;
+    viewerImage.onload = () => {
+      if (viewerImage.src !== url) return;
+      elements["viewer-image-frame"].setAttribute("aria-busy", "false");
+      elements["viewer-image-status"].hidden = true;
+    };
+    viewerImage.onerror = () => {
+      if (viewerImage.src !== url) return;
+      elements["viewer-image-frame"].setAttribute("aria-busy", "false");
+      elements["viewer-image-status"].textContent = "无法呈现这张照片。";
+      elements["viewer-image-status"].hidden = false;
+    };
+    viewerImage.src = url;
+  }
   viewerImage.alt = `${group.analysisFile.name} 全分辨率预览`;
   elements["viewer-position"].textContent = `${viewer.index + 1} / ${viewer.total}`;
   elements["viewer-kicker"].textContent =
@@ -343,41 +385,59 @@ function renderViewer() {
     buttonSelected(button, decisionFor(group) === decision);
   elements["viewer-clear-decision"].disabled = !decisionFor(group);
   elements["viewer-filmstrip"].replaceChildren(
-    ...gallery.visiblePhotoGroups().map((photoGroup) => {
-      const thumbnail = document.createElement("button");
-      thumbnail.type = "button";
-      thumbnail.className = `viewer-thumbnail${photoGroup.id === group.id ? " selected" : ""}`;
-      thumbnail.setAttribute("aria-label", `查看 ${photoGroup.analysisFile.name}`);
-      thumbnail.setAttribute(
-        "aria-current",
-        photoGroup.id === group.id ? "true" : "false",
-      );
-      if (photoGroup.analysis.thumbnail) {
-        const image = document.createElement("img");
-        const thumbnailUrl = URL.createObjectURL(photoGroup.analysis.thumbnail);
-        previewUrls.push(thumbnailUrl);
-        image.src = thumbnailUrl;
-        image.alt = "";
-        thumbnail.append(image);
-      } else {
-        thumbnail.classList.add("is-pending");
-        const placeholder = document.createElement("span");
-        placeholder.className = "filmstrip-placeholder";
-        placeholder.setAttribute("aria-hidden", "true");
-        thumbnail.append(placeholder);
-      }
-      thumbnail.addEventListener("click", () => {
-        gallery.goTo(photoGroup.id);
-        render();
-      });
-      return thumbnail;
-    }),
+    ...gallery
+      .visiblePhotoGroups()
+      .map((photoGroup) => renderFilmstripItem(photoGroup, group.id)),
   );
   elements["viewer-filmstrip"]
     .querySelector('[aria-current="true"]')
     ?.scrollIntoView({ block: "nearest", inline: "center" });
 }
+function createFilmstripPreview(group) {
+  if (!group.analysis.thumbnail) {
+    const placeholder = document.createElement("span");
+    placeholder.className = "filmstrip-placeholder";
+    placeholder.setAttribute("aria-hidden", "true");
+    return placeholder;
+  }
+  const image = document.createElement("img");
+  image.className = "filmstrip-image";
+  const url = URL.createObjectURL(group.analysis.thumbnail);
+  filmstripPreviewUrls.push(url);
+  image.src = url;
+  image.alt = "";
+  return image;
+}
+function renderFilmstripItem(group, currentPhotoGroupId) {
+  let thumbnail = filmstripItems.get(group.id);
+  if (!thumbnail) {
+    thumbnail = document.createElement("button");
+    thumbnail.type = "button";
+    thumbnail.dataset.photoGroupId = group.id;
+    thumbnail.addEventListener("click", () => {
+      gallery.goTo(thumbnail.dataset.photoGroupId);
+      render();
+    });
+    filmstripItems.set(group.id, thumbnail);
+  }
+  const pendingPreview = !group.analysis.thumbnail;
+  thumbnail.className = `viewer-thumbnail${group.id === currentPhotoGroupId ? " selected" : ""}${pendingPreview ? " is-pending" : ""}`;
+  thumbnail.setAttribute("aria-label", `查看 ${group.analysisFile.name}`);
+  thumbnail.setAttribute(
+    "aria-current",
+    String(group.id === currentPhotoGroupId),
+  );
+  const preview = thumbnail.firstElementChild;
+  if (!preview) thumbnail.append(createFilmstripPreview(group));
+  else if (
+    (pendingPreview && preview.tagName === "IMG") ||
+    (!pendingPreview && preview.tagName !== "IMG")
+  )
+    preview.replaceWith(createFilmstripPreview(group));
+  return thumbnail;
+}
 function renderMovedBatches() {
+  revokeUrls(movedPreviewUrls);
   const batches = state?.movedBatches ?? [];
   elements["moved-batch-list"].replaceChildren(
     ...batches.map((batch) => {
@@ -406,7 +466,7 @@ function renderMovedBatches() {
         button.className = "moved-photo";
         const image = document.createElement("img");
         const previewUrl = URL.createObjectURL(group.analysisFile);
-        previewUrls.push(previewUrl);
+        movedPreviewUrls.push(previewUrl);
         image.src = previewUrl;
         image.alt = `${group.analysisFile.name} 预览`;
         const label = document.createElement("span");
@@ -434,10 +494,26 @@ function renderControls() {
   elements["moved-groups-button"].disabled = !state.movedBatches.length;
   const selectedCount = gallery.selectedPhotoGroupIds().length;
   const fileOperation = operationFeedback.state();
+  const suggestedRemovals =
+    state.filter === "reject" ? visibleGroups() : [];
+  const allSuggestedRemovalsSelected =
+    suggestedRemovals.length > 0 &&
+    suggestedRemovals.every(({ id }) => gallery.actionSelection.has(id));
   elements["action-selection-bar"].hidden =
-    !selectedCount && !isFileOperation(fileOperation);
+    !selectedCount &&
+    !suggestedRemovals.length &&
+    !isFileOperation(fileOperation);
   elements["action-selection-count"].textContent =
-    selectedCount ? `已选 ${selectedCount} 个 photo group` : "文件操作反馈";
+    selectedCount
+      ? `已选 ${selectedCount} 个 photo group`
+      : suggestedRemovals.length
+        ? "选择候选项以创建可恢复 review batch"
+        : "文件操作反馈";
+  elements["select-suggested-removals"].hidden = !suggestedRemovals.length;
+  elements["select-suggested-removals"].disabled = allSuggestedRemovalsSelected;
+  elements["select-suggested-removals"].textContent = allSuggestedRemovalsSelected
+    ? "已选择全部建议移出"
+    : "选择全部建议移出";
   elements["clear-action-selection"].hidden = !selectedCount;
   elements["move-button"].hidden = !selectedCount;
   elements["move-button"].disabled = !selectedCount || fileOperation.isBusy;
@@ -519,6 +595,7 @@ function setFolderActionsBusy(isBusy) {
   }
 }
 function applyScan(scan) {
+  clearUrls();
   state = {
     ...scan,
     filter: scan.review.filter,
@@ -739,6 +816,10 @@ if (
 function choosePhotoDirectory() {
   void openWorkspace((options) => workspace.chooseDirectory(options));
 }
+function selectSuggestedRemovals() {
+  gallery.selectVisiblePhotoGroups();
+  render();
+}
 elements["choose-folder"].addEventListener("click", choosePhotoDirectory);
 elements["empty-choose-folder"].addEventListener(
   "click",
@@ -760,6 +841,10 @@ elements["viewer-pick"].addEventListener("click", () => decide("pick"));
 elements["viewer-keep"].addEventListener("click", () => decide("keep"));
 elements["viewer-reject"].addEventListener("click", () => decide("reject"));
 elements["viewer-clear-decision"].addEventListener("click", () => decide(null));
+elements["select-suggested-removals"].addEventListener(
+  "click",
+  selectSuggestedRemovals,
+);
 elements["clear-action-selection"].addEventListener(
   "click",
   clearActionSelection,

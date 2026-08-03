@@ -112,6 +112,13 @@ export class GalleryInteraction {
     this.selectionAnchorId = null;
   }
 
+  selectVisiblePhotoGroups() {
+    const visible = this.visiblePhotoGroups();
+    visible.forEach(({ id }) => this.actionSelection.add(id));
+    this.selectionAnchorId = visible.at(-1)?.id ?? null;
+    return this.selectedPhotoGroupIds();
+  }
+
   selectedPhotoGroupIds() {
     return this.photoGroups
       .filter((photoGroup) => this.actionSelection.has(photoGroup.id))
