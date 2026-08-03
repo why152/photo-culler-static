@@ -4,8 +4,15 @@
 
 **Blocked by:** 01 — 大图尺寸与长列表 filmstrip; 02 — 建议移出筛选的显式 action selection; 03 — 加载与选择时的图片渲染稳定性.
 
-**Status:** in_progress
+**Status:** completed
 
 - [x] Node、Chrome、语法、差异检查和窄屏视觉验证通过。
 - [x] Standards 与 Spec 双轴审查无未解决阻断项。
-- [ ] 已提交 main，Pages 工作流成功，公开站点返回修复后的资源。
+- [x] 已提交 main，Pages 工作流成功，公开站点返回修复后的资源。
+
+## Release evidence
+
+- `4b5e85a` — `fix: stabilize photo viewer interactions`
+- [GitHub Pages workflow #30823562802](https://github.com/why152/photo-culler-static/actions/runs/30823562802) completed successfully for the same commit SHA.
+- Cache-busting public fetches returned the explicit suggested-removal entry, stable grid/filmstrip image caches, and expanded Photo Viewer height rules; the public JavaScript SHA-256 matched local output.
+- Final validation: 20 Node tests, 23 Chrome tests, syntax checks, `git diff --check`, desktop and narrow-screen visual checks, plus Standards and Spec reviews all passed.

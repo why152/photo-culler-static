@@ -1,6 +1,6 @@
 # 大图与建议移出可用性修复规格
 
-**Status:** in_progress
+**Status:** completed
 
 ## Problem Statement
 
