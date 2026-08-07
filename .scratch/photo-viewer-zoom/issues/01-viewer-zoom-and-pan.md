@@ -17,3 +17,10 @@
 
 - 2026-08-08: 参考 Apple Photos/HIG 的全屏内容层与等价输入路径设计；缩放采用 CSS transform，不新增解码内存，兼容上一轮的性能稳定性约束。
 - 2026-08-08: 实施完成并复核；Node 28/28、Chrome 29/29 通过。`1/2/X`、`Space/J`、`←/→`、`Esc` 与 `0`（取消决定）的既有测试全部保持通过。
+
+## Release evidence
+
+- `66400c9` — `feat: zoom and pan Photo Viewer with wheel, drag, and keyboard`
+- [GitHub Pages workflow #31200120943](https://github.com/why152/photo-culler-static/actions/runs/31200120943) completed successfully for the same commit SHA.
+- Cache-busting public fetches returned the zoom toolbar and a `site.js` SHA-256 identical to local output.
+- Final validation: 28 Node tests, 29 Chrome tests, syntax checks, and `git diff --check` all passed.
