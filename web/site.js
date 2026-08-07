@@ -2,6 +2,7 @@ import { BrowserPhotoAnalyzer } from "./modules/photo-analysis.js";
 import { BrowserReviewStore } from "./modules/browser-store.js";
 import { GalleryInteraction } from "./modules/gallery-interaction.js";
 import { OperationFeedback } from "./modules/operation-feedback.js";
+import { ViewerZoom } from "./modules/viewer-zoom.js";
 import {
   browserCapabilities,
   ReviewWorkspace,
@@ -47,6 +48,10 @@ const elements = Object.fromEntries(
     "viewer-image-frame",
     "viewer-image-status",
     "viewer-image",
+    "viewer-zoom-out",
+    "viewer-zoom-label",
+    "viewer-zoom-in",
+    "viewer-zoom-reset",
     "viewer-reasons",
     "viewer-previous",
     "viewer-next",
@@ -77,6 +82,7 @@ const movedPreviewGroups = new Map();
 const movedPreviewImages = new Map();
 let movedPreviewQueue = Promise.resolve();
 let viewerPreview = null;
+const viewerZoom = new ViewerZoom();
 let decisionHistory = [];
 let operationCompletionTimer = null;
 let interactionStatusTimer = null;
@@ -369,11 +375,15 @@ function renderViewer() {
     elements["viewer-image-frame"].setAttribute("aria-busy", "false");
     elements["viewer-image-status"].hidden = true;
     lastFilmstripVisibleIds = null;
+    viewerZoom.reset();
+    applyViewerZoom();
     return;
   }
   const viewerImage = elements["viewer-image"];
   if (viewerPreview?.photoGroupId !== group.id) {
     if (viewerPreview) URL.revokeObjectURL(viewerPreview.url);
+    viewerZoom.reset();
+    applyViewerZoom();
     const url = URL.createObjectURL(group.analysisFile);
     viewerPreview = { photoGroupId: group.id, url };
     elements["viewer-image-frame"].setAttribute("aria-busy", "true");
@@ -383,12 +393,21 @@ function renderViewer() {
       if (viewerImage.src !== url) return;
       elements["viewer-image-frame"].setAttribute("aria-busy", "false");
       elements["viewer-image-status"].hidden = true;
+      viewerZoom.setImage(
+        elements["viewer-image-frame"].clientWidth,
+        elements["viewer-image-frame"].clientHeight,
+        viewerImage.naturalWidth,
+        viewerImage.naturalHeight,
+      );
+      applyViewerZoom();
     };
     viewerImage.onerror = () => {
       if (viewerImage.src !== url) return;
       elements["viewer-image-frame"].setAttribute("aria-busy", "false");
       elements["viewer-image-status"].textContent = "无法呈现这张照片。";
       elements["viewer-image-status"].hidden = false;
+      viewerZoom.reset();
+      applyViewerZoom();
     };
     viewerImage.src = url;
   }
@@ -425,6 +444,38 @@ function renderViewer() {
     ?.scrollIntoView({ block: "nearest", inline: "center" });
 }
 
+function viewerFramePoint(event) {
+  const rect = elements["viewer-image-frame"].getBoundingClientRect();
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+  };
+}
+function applyViewerZoom() {
+  const hasImage = viewerZoom.hasImage();
+  elements["viewer-zoom-in"].disabled =
+    !hasImage || viewerZoom.zoomFactor >= viewerZoom.maxZoom;
+  elements["viewer-zoom-out"].disabled =
+    !hasImage || viewerZoom.zoomFactor <= viewerZoom.minZoom;
+  elements["viewer-zoom-reset"].disabled = !hasImage || !viewerZoom.isZoomed;
+  elements["viewer-zoom-label"].textContent = hasImage
+    ? `${Math.round(viewerZoom.zoomFactor * 100)}%`
+    : "100%";
+  elements["viewer-image-frame"].classList.toggle(
+    "is-zoomed",
+    hasImage && viewerZoom.isZoomed,
+  );
+  viewerZoom.applyTo(elements["viewer-image"].style);
+}
+function zoomAtFrameCenter(factor) {
+  const frame = elements["viewer-image-frame"];
+  viewerZoom.zoomAt(
+    frame.clientWidth / 2,
+    frame.clientHeight / 2,
+    factor,
+  );
+  applyViewerZoom();
+}
 function updateViewerCopy(group) {
   elements["viewer-kicker"].textContent =
     `${group.analysis.status.toUpperCase()} · ${group.members.length} 个成员${group.hasRaw ? " · RAW" : ""}`;
@@ -957,6 +1008,62 @@ elements["close-moved-button"].addEventListener("click", () => {
 elements["viewer-close"].addEventListener("click", closeViewer);
 elements["viewer-previous"].addEventListener("click", () => moveViewer(-1));
 elements["viewer-next"].addEventListener("click", () => moveViewer(1));
+elements["viewer-zoom-in"].addEventListener("click", () => {
+  if (gallery?.viewer) zoomAtFrameCenter(viewerZoom.step);
+});
+elements["viewer-zoom-out"].addEventListener("click", () => {
+  if (gallery?.viewer) zoomAtFrameCenter(1 / viewerZoom.step);
+});
+elements["viewer-zoom-reset"].addEventListener("click", () => {
+  viewerZoom.reset();
+  applyViewerZoom();
+});
+const viewerFrame = elements["viewer-image-frame"];
+viewerFrame.addEventListener(
+  "wheel",
+  (event) => {
+    if (!gallery?.viewer || !viewerZoom.hasImage()) return;
+    event.preventDefault();
+    const point = viewerFramePoint(event);
+    viewerZoom.zoomAt(
+      point.x,
+      point.y,
+      event.deltaY < 0 ? viewerZoom.step : 1 / viewerZoom.step,
+    );
+    applyViewerZoom();
+  },
+  { passive: false },
+);
+viewerFrame.addEventListener("dblclick", (event) => {
+  if (!gallery?.viewer || !viewerZoom.hasImage()) return;
+  const point = viewerFramePoint(event);
+  viewerZoom.toggle(point.x, point.y);
+  applyViewerZoom();
+});
+let panPointerId = null;
+let panLast = null;
+viewerFrame.addEventListener("pointerdown", (event) => {
+  if (!gallery?.viewer || !viewerZoom.isZoomed || event.button !== 0) return;
+  panPointerId = event.pointerId;
+  panLast = { x: event.clientX, y: event.clientY };
+  viewerFrame.setPointerCapture(event.pointerId);
+  viewerFrame.classList.add("is-panning");
+  event.preventDefault();
+});
+viewerFrame.addEventListener("pointermove", (event) => {
+  if (event.pointerId !== panPointerId) return;
+  viewerZoom.panBy(event.clientX - panLast.x, event.clientY - panLast.y);
+  panLast = { x: event.clientX, y: event.clientY };
+  applyViewerZoom();
+});
+function endViewerPan(event) {
+  if (event.pointerId !== panPointerId) return;
+  panPointerId = null;
+  panLast = null;
+  viewerFrame.classList.remove("is-panning");
+}
+viewerFrame.addEventListener("pointerup", endViewerPan);
+viewerFrame.addEventListener("pointercancel", endViewerPan);
 elements["viewer-pick"].addEventListener("click", () => decide("pick"));
 elements["viewer-keep"].addEventListener("click", () => decide("keep"));
 elements["viewer-reject"].addEventListener("click", () => decide("reject"));
@@ -1015,6 +1122,21 @@ document.addEventListener("keydown", (event) => {
   } else if (event.key === "1" && gallery?.viewer) decide("pick");
   else if (event.key === "2" && gallery?.viewer) decide("keep");
   else if (key === "x" && gallery?.viewer) decide("reject");
+  else if ((event.key === "+" || event.key === "=") && gallery?.viewer) {
+    event.preventDefault();
+    zoomAtFrameCenter(viewerZoom.step);
+  } else if ((event.key === "-" || event.key === "_") && gallery?.viewer) {
+    event.preventDefault();
+    zoomAtFrameCenter(1 / viewerZoom.step);
+  } else if (
+    (event.metaKey || event.ctrlKey) &&
+    event.key === "0" &&
+    gallery?.viewer
+  ) {
+    event.preventDefault();
+    viewerZoom.reset();
+    applyViewerZoom();
+  }
   else if (event.key === "0" && gallery?.viewer) decide(null);
   else if (key === "u" && gallery?.viewer) undoDecision();
   else if (event.key === "Escape" && gallery?.actionSelection.size) {

@@ -155,6 +155,30 @@
             关闭大图
           </button>
           <p id="viewer-position" class="viewer-position" aria-live="polite"></p>
+          <div class="viewer-zoom-actions" role="group" aria-label="缩放">
+            <button id="viewer-zoom-out" type="button" aria-label="缩小" title="缩小">
+              −
+            </button>
+            <span
+              id="viewer-zoom-label"
+              class="viewer-zoom-label"
+              role="status"
+              aria-live="polite"
+            >
+              100%
+            </span>
+            <button id="viewer-zoom-in" type="button" aria-label="放大" title="放大">
+              +
+            </button>
+            <button
+              id="viewer-zoom-reset"
+              type="button"
+              aria-label="适合窗口"
+              title="适合窗口 (Ctrl/⌘0)"
+            >
+              ⤢
+            </button>
+          </div>
           <div class="viewer-summary">
             <p id="viewer-kicker" class="eyebrow"></p>
             <h2 id="viewer-name"></h2>
@@ -198,7 +222,7 @@
         <footer class="photo-viewer-footer">
           <div id="viewer-filmstrip" class="viewer-filmstrip" aria-label="当前筛选结果"></div>
           <p class="keyboard-tip">
-            ← / → 相邻浏览 · Space / J 下一张未筛 · Esc 关闭大图
+            ← / → 相邻浏览 · Space / J 下一张未筛 · 滚轮 / ± 缩放 · 拖拽平移 · Esc 关闭大图
           </p>
         </footer>
       </section>
