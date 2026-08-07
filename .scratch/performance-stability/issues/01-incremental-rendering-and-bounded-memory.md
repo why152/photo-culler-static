@@ -26,4 +26,4 @@
 ## Comments
 
 - 2026-08-08: 从截图 OCR 确认错误代码 5；基于 100_PANA_春日部（67 个 photo group、6000×4000 JPEG）与现有测试基线开始实施。
-- 2026-08-08: 实施完成；Node 20/20、Chrome 25/25 通过。`first-run-directory-entry` 的 Enter 测试改为断言稳定的 operation feedback 可见性（原断言依赖单张 JPEG 几毫秒内完成的瞬态文案，并行运行时存在竞态）。
+- 2026-08-08: 实施完成并复核；Node 21/21、Chrome 27/27 通过。`first-run-directory-entry` 的 Enter 测试改为断言稳定的 operation feedback 可见性（原断言依赖单张 JPEG 几毫秒内完成的瞬态文案，并行运行时存在竞态）。

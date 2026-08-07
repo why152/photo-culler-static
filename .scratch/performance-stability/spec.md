@@ -1,5 +1,7 @@
 # 性能稳定性
 
+**Status:** completed
+
 **What to build:** 作为摄影者，我在长目录（数百张 6000×4000 JPEG）中扫描、审核、打开 Photo Viewer 和恢复 review batch 时，页面不会因渲染进程内存过大而崩溃，分析进度更新不会触发整页重建。
 
 **Boundaries:**
