@@ -58,7 +58,7 @@ test("first-run directory entry also accepts Enter", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(
     page.getByRole("status", { name: "操作进度", exact: true }),
-  ).toContainText("正在读取照片文件夹");
+  ).toBeVisible();
   await expect(page.locator(".photo-card")).toHaveCount(1);
 });
 

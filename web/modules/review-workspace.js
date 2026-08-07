@@ -289,7 +289,13 @@ export class ReviewWorkspace {
             group.id === analyzedGroup.id ? analyzedGroup : group,
           );
           current.review = normalizeReview(current.review, current.photoGroups);
-          onAnalysis?.({ current, done, total, complete: false });
+          onAnalysis?.({
+            current,
+            done,
+            total,
+            complete: false,
+            groupId: analyzedGroup.id,
+          });
         },
       }),
     )

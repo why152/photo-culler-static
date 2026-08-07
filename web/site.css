@@ -968,6 +968,7 @@ kbd {
   width: 46px;
   height: 46px;
   object-fit: cover;
+  background: var(--surface-subtle);
 }
 
 .moved-photo span {

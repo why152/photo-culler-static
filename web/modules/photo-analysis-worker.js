@@ -1,5 +1,21 @@
 const ANALYSIS_LONG_EDGE = 1600;
 const THUMBNAIL_EDGE = 420;
+const RESIZE_DECODE_THRESHOLD_BYTES = 1_000_000;
+
+async function decodeBitmap(file) {
+  if (file.size > RESIZE_DECODE_THRESHOLD_BYTES) {
+    try {
+      return await createImageBitmap(file, {
+        imageOrientation: "from-image",
+        resizeWidth: ANALYSIS_LONG_EDGE,
+        resizeQuality: "high",
+      });
+    } catch {
+      // Fall back to a full-resolution decode below.
+    }
+  }
+  return createImageBitmap(file, { imageOrientation: "from-image" });
+}
 
 function dimensionsWithin(longEdge, width, height) {
   if (Math.max(width, height) <= longEdge) return { width, height };
@@ -107,7 +123,7 @@ export function scorePixels(imageData, width, height) {
 async function analyzeFile(file) {
   let bitmap;
   try {
-    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    bitmap = await decodeBitmap(file);
     const analysisSize = dimensionsWithin(
       ANALYSIS_LONG_EDGE,
       bitmap.width,

@@ -72,11 +72,17 @@ const gridItems = new Map();
 const filmstripItems = new Map();
 const gridPreviewUrls = [];
 const filmstripPreviewUrls = [];
-const movedPreviewUrls = [];
+const movedPreviewUrlCache = new Map();
+const movedPreviewGroups = new Map();
+const movedPreviewImages = new Map();
+let movedPreviewQueue = Promise.resolve();
 let viewerPreview = null;
 let decisionHistory = [];
 let operationCompletionTimer = null;
 let interactionStatusTimer = null;
+let lastGridVisibleIds = null;
+let lastFilmstripVisibleIds = null;
+let lastMovedBatchesSignature = null;
 const decisionLabels = {
   pick: "精选",
   keep: "保留",
@@ -168,11 +174,17 @@ function revokeUrls(urls) {
 function clearUrls() {
   revokeUrls(gridPreviewUrls);
   revokeUrls(filmstripPreviewUrls);
-  revokeUrls(movedPreviewUrls);
+  movedPreviewUrlCache.forEach((url) => URL.revokeObjectURL(url));
+  movedPreviewUrlCache.clear();
+  movedPreviewGroups.clear();
+  movedPreviewImages.clear();
   if (viewerPreview) URL.revokeObjectURL(viewerPreview.url);
   viewerPreview = null;
   gridItems.clear();
   filmstripItems.clear();
+  lastGridVisibleIds = null;
+  lastFilmstripVisibleIds = null;
+  lastMovedBatchesSignature = null;
 }
 function currentGroup() {
   const viewer = gallery?.viewerState();
@@ -243,11 +255,19 @@ function renderGrid() {
     empty.setAttribute("role", "status");
     empty.textContent = `没有符合“${filterLabels[state.filter]}”筛选条件的 photo group。`;
     elements["photo-grid"].replaceChildren(empty);
+    lastGridVisibleIds = null;
     return;
   }
-  elements["photo-grid"].replaceChildren(
-    ...visible.map(renderGridItem),
-  );
+  const visibleIds = visible.map((group) => group.id);
+  const sameVisibleSet =
+    lastGridVisibleIds &&
+    visibleIds.length === lastGridVisibleIds.length &&
+    visibleIds.every((id, index) => id === lastGridVisibleIds[index]);
+  if (sameVisibleSet) visible.forEach(renderGridItem);
+  else {
+    elements["photo-grid"].replaceChildren(...visible.map(renderGridItem));
+    lastGridVisibleIds = visibleIds;
+  }
 }
 function createPreview(group) {
   if (!group.analysis.thumbnail) {
@@ -261,6 +281,8 @@ function createPreview(group) {
   }
   const preview = document.createElement("img");
   preview.className = "photo-card-preview";
+  preview.loading = "lazy";
+  preview.decoding = "async";
   const url = URL.createObjectURL(group.analysis.thumbnail);
   gridPreviewUrls.push(url);
   preview.src = url;
@@ -346,6 +368,7 @@ function renderViewer() {
   if (!viewer || !group) {
     elements["viewer-image-frame"].setAttribute("aria-busy", "false");
     elements["viewer-image-status"].hidden = true;
+    lastFilmstripVisibleIds = null;
     return;
   }
   const viewerImage = elements["viewer-image"];
@@ -371,10 +394,7 @@ function renderViewer() {
   }
   viewerImage.alt = `${group.analysisFile.name} 全分辨率预览`;
   elements["viewer-position"].textContent = `${viewer.index + 1} / ${viewer.total}`;
-  elements["viewer-kicker"].textContent =
-    `${group.analysis.status.toUpperCase()} · ${group.members.length} 个成员${group.hasRaw ? " · RAW" : ""}`;
-  elements["viewer-name"].textContent = group.analysisFile.name;
-  elements["viewer-reasons"].textContent = group.analysis.reasons.join("；");
+  updateViewerCopy(group);
   elements["viewer-previous"].disabled = !viewer.canGoPrevious;
   elements["viewer-next"].disabled = !viewer.canGoNext;
   for (const [button, decision] of [
@@ -384,14 +404,32 @@ function renderViewer() {
   ])
     buttonSelected(button, decisionFor(group) === decision);
   elements["viewer-clear-decision"].disabled = !decisionFor(group);
-  elements["viewer-filmstrip"].replaceChildren(
-    ...gallery
-      .visiblePhotoGroups()
-      .map((photoGroup) => renderFilmstripItem(photoGroup, group.id)),
-  );
+  const visible = gallery.visiblePhotoGroups();
+  const visibleIds = visible.map((photoGroup) => photoGroup.id);
+  const sameVisibleSet =
+    lastFilmstripVisibleIds &&
+    visibleIds.length === lastFilmstripVisibleIds.length &&
+    visibleIds.every((id, index) => id === lastFilmstripVisibleIds[index]);
+  if (sameVisibleSet) {
+    visible.forEach((photoGroup) =>
+      renderFilmstripItem(photoGroup, group.id),
+    );
+  } else {
+    elements["viewer-filmstrip"].replaceChildren(
+      ...visible.map((photoGroup) => renderFilmstripItem(photoGroup, group.id)),
+    );
+    lastFilmstripVisibleIds = visibleIds;
+  }
   elements["viewer-filmstrip"]
     .querySelector('[aria-current="true"]')
     ?.scrollIntoView({ block: "nearest", inline: "center" });
+}
+
+function updateViewerCopy(group) {
+  elements["viewer-kicker"].textContent =
+    `${group.analysis.status.toUpperCase()} · ${group.members.length} 个成员${group.hasRaw ? " · RAW" : ""}`;
+  elements["viewer-name"].textContent = group.analysisFile.name;
+  elements["viewer-reasons"].textContent = group.analysis.reasons.join("；");
 }
 function createFilmstripPreview(group) {
   if (!group.analysis.thumbnail) {
@@ -402,6 +440,8 @@ function createFilmstripPreview(group) {
   }
   const image = document.createElement("img");
   image.className = "filmstrip-image";
+  image.loading = "lazy";
+  image.decoding = "async";
   const url = URL.createObjectURL(group.analysis.thumbnail);
   filmstripPreviewUrls.push(url);
   image.src = url;
@@ -437,8 +477,16 @@ function renderFilmstripItem(group, currentPhotoGroupId) {
   return thumbnail;
 }
 function renderMovedBatches() {
-  revokeUrls(movedPreviewUrls);
   const batches = state?.movedBatches ?? [];
+  const signature = batches
+    .map((batch) => `${batch.id}:${batch.photoGroups.length}`)
+    .join("|");
+  if (signature === lastMovedBatchesSignature) return;
+  lastMovedBatchesSignature = signature;
+  movedPreviewUrlCache.forEach((url) => URL.revokeObjectURL(url));
+  movedPreviewUrlCache.clear();
+  movedPreviewGroups.clear();
+  movedPreviewImages.clear();
   elements["moved-batch-list"].replaceChildren(
     ...batches.map((batch) => {
       const section = document.createElement("section");
@@ -465,9 +513,12 @@ function renderMovedBatches() {
         button.type = "button";
         button.className = "moved-photo";
         const image = document.createElement("img");
-        const previewUrl = URL.createObjectURL(group.analysisFile);
-        movedPreviewUrls.push(previewUrl);
-        image.src = previewUrl;
+        image.loading = "lazy";
+        image.decoding = "async";
+        const previewKey = `${batch.id}:${group.id}`;
+        image.dataset.previewKey = previewKey;
+        movedPreviewGroups.set(previewKey, group);
+        movedPreviewImages.set(previewKey, image);
         image.alt = `${group.analysisFile.name} 预览`;
         const label = document.createElement("span");
         label.textContent = `恢复 ${group.analysisFile.name}`;
@@ -567,22 +618,22 @@ function analysisFeedback(done, total, complete = false) {
   if (!total) {
     completeOperation({
       kind: "analysis",
-      title: "没有发现可审核的 JPEG",
-      detail: "请选择包含 JPEG 的普通照片文件夹。",
+      title: "没有发现可审核的照片",
+      detail: "请选择包含 JPEG/PNG/WEBP 的普通照片文件夹。",
     });
     return;
   }
   if (complete) {
     completeOperation({
       kind: "analysis",
-      title: "JPEG 分析完成",
+      title: "照片分析完成",
       detail: `已分析 ${done} / ${total} 个 photo group。`,
     });
     return;
   }
   progressOperation({
     kind: "analysis",
-    title: "正在分析 JPEG",
+    title: "正在分析照片",
     completed: done,
     total,
     detail: `已分析 ${done} / ${total} 个 photo group。`,
@@ -624,11 +675,18 @@ async function openWorkspace(action) {
   try {
     const scan = await action({
       onProgress: (done, total) => analysisFeedback(done, total),
-      onAnalysis: ({ current, done, total, complete, error }) => {
+      onAnalysis: ({ current, done, total, complete, error, groupId }) => {
         if (!state || state.directory !== current.directory) return;
         state.photoGroups = current.photoGroups;
         state.review = current.review;
-        render();
+        if (complete || error) {
+          render();
+        } else if (groupId) {
+          const group = state.photoGroups.find(
+            (candidate) => candidate.id === groupId,
+          );
+          if (group) renderAnalysisResult(group);
+        }
         if (error) showError(error);
         else analysisFeedback(done, total, complete);
       },
@@ -644,6 +702,15 @@ async function openWorkspace(action) {
   } finally {
     setFolderActionsBusy(false);
   }
+}
+
+function renderAnalysisResult(group) {
+  if (gridItems.has(group.id)) renderGridItem(group);
+  const viewer = gallery?.viewerState();
+  if (!viewer) return;
+  if (filmstripItems.has(group.id))
+    renderFilmstripItem(group, viewer.photoGroupId);
+  if (viewer.photoGroupId === group.id) updateViewerCopy(group);
 }
 async function decide(decision) {
   const group = currentGroup();
@@ -830,6 +897,7 @@ elements["resume-folder"].addEventListener("click", () =>
 );
 elements["moved-groups-button"].addEventListener("click", () => {
   elements["moved-panel"].hidden = !elements["moved-panel"].hidden;
+  if (!elements["moved-panel"].hidden) startMovedPreviews();
 });
 elements["close-moved-button"].addEventListener("click", () => {
   elements["moved-panel"].hidden = true;
