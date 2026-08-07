@@ -11,7 +11,7 @@ test("static workbench uses Chrome's real local file APIs without photo network 
     page.getByRole("button", { name: "选择照片文件夹" }),
   ).toBeEnabled();
   await expect(page.locator("#capability-status")).toBeHidden();
-  await expect(page).toHaveTitle("Photo Culler Local");
+  await expect(page).toHaveTitle("Photo Culler — 本地照片筛选与审核工具");
 
   const result = await page.evaluate(async () => {
     const { BrowserPhotoAnalyzer } = await import(

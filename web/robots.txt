@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://why152.github.io/photo-culler-static/sitemap.xml

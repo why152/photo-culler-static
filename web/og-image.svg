@@ -1,0 +1,56 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1200"
+  height="630"
+  viewBox="0 0 1200 630"
+  role="img"
+  aria-label="Photo Culler 本地照片筛选与审核工具"
+>
+  <defs>
+    <linearGradient id="og-background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0b0f" />
+      <stop offset="1" stop-color="#20202a" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#og-background)" />
+  <rect x="64" y="64" width="352" height="352" rx="72" fill="#0a84ff" />
+  <g
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="18"
+    stroke-linejoin="round"
+    stroke-linecap="round"
+  >
+    <path d="M140 170h52l20-32h92l20 32h52v156H140V170z" />
+    <circle cx="247" cy="244" r="52" />
+    <path d="M210 244l24 24 44-52" />
+  </g>
+  <text
+    x="470"
+    y="246"
+    font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif"
+    font-size="72"
+    font-weight="700"
+    fill="#f5f5f7"
+  >
+    Photo Culler
+  </text>
+  <text
+    x="472"
+    y="330"
+    font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif"
+    font-size="34"
+    fill="#aeaeb2"
+  >
+    本地照片筛选与审核工具
+  </text>
+  <text
+    x="472"
+    y="390"
+    font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif"
+    font-size="24"
+    fill="#86868b"
+  >
+    JPEG · PNG · WEBP · 完全本地处理 · 可恢复移动
+  </text>
+</svg>
