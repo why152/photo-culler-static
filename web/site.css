@@ -774,11 +774,9 @@ h2 {
 
 .viewer-image-frame {
   position: relative;
-  display: grid;
+  display: block;
   width: min(100%, 1320px);
   height: min(78dvh, 920px);
-  min-height: 0;
-  place-items: center;
   overflow: hidden;
   touch-action: none;
 }
@@ -804,6 +802,8 @@ h2 {
 
 .viewer-image-frame[aria-busy="true"]::after {
   position: absolute;
+  top: 50%;
+  left: 50%;
   width: 28px;
   height: 28px;
   border: 3px solid rgb(255 255 255 / 0.22);
@@ -811,6 +811,7 @@ h2 {
   border-radius: 50%;
   content: "";
   animation: operation-spin 820ms linear infinite;
+  transform: translate(-50%, -50%);
 }
 
 .viewer-image-status {
