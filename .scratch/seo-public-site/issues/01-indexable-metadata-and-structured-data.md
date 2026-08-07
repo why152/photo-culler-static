@@ -17,3 +17,10 @@
 
 - 2026-08-08: 站点为纯本地优先应用，SEO 只做公开首页的可索引说明，不引入分析或外部资源。
 - 2026-08-08: 实施完成并复核；Node 28/28、Chrome 30/30 通过。既有标题断言已更新为新的 SEO 标题。
+
+## Release evidence
+
+- `58bf7dc` — `feat: add public site SEO metadata, structured data, and crawler entry points`
+- [GitHub Pages workflow #31200797232](https://github.com/why152/photo-culler-static/actions/runs/31200797232) completed successfully for the same commit SHA.
+- Live fetches returned 200 for `/`, `/robots.txt`, `/sitemap.xml`, `/og-image.png`, and `/favicon.svg`; the public `og-image.png` SHA-256 matched local output.
+- Final validation: 28 Node tests, 30 Chrome tests, syntax checks, and `git diff --check` all passed.
