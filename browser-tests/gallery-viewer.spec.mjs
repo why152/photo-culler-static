@@ -208,7 +208,7 @@ test("Photo Viewer restores the opening grid scroll position", async ({ page }) 
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
   await expect(page.locator(".photo-card")).toHaveCount(24);
   await expect(page.getByRole("status", { name: "操作进度" })).toContainText(
-    "JPEG 分析完成",
+    "照片分析完成",
   );
 
   const card = page.locator('[id="photo-card:photo-group:P1000024"]');
@@ -354,7 +354,7 @@ test("JPEG analysis progress keeps an already presented thumbnail stable", async
   const sourceAfterFirstAnalysis = await firstPreview.getAttribute("src");
 
   await expect(page.getByRole("status", { name: "操作进度" })).toContainText(
-    "JPEG 分析完成",
+    "照片分析完成",
   );
   await expect(firstPreview).toHaveAttribute("src", sourceAfterFirstAnalysis);
 });
@@ -375,7 +375,7 @@ test("JPEG analysis progress does not reload the current Photo Viewer source", a
   const sourceAfterOpening = await viewerImage.getAttribute("src");
 
   await expect(page.getByRole("status", { name: "操作进度" })).toContainText(
-    "JPEG 分析完成",
+    "照片分析完成",
   );
   await expect(viewerImage).toHaveAttribute("src", sourceAfterOpening);
 });
@@ -394,7 +394,7 @@ test("JPEG analysis progress keeps already presented filmstrip thumbnails stable
   const sourceAfterOpening = await firstFilmstripPreview.getAttribute("src");
 
   await expect(page.getByRole("status", { name: "操作进度" })).toContainText(
-    "JPEG 分析完成",
+    "照片分析完成",
   );
   await expect(firstFilmstripPreview).toHaveAttribute("src", sourceAfterOpening);
 });

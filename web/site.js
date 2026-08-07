@@ -532,6 +532,58 @@ function renderMovedBatches() {
       return section;
     }),
   );
+  startMovedPreviews();
+}
+
+async function decodeMovedPreview(file) {
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file, {
+      imageOrientation: "from-image",
+      resizeWidth: 220,
+      resizeQuality: "high",
+    });
+  } catch {
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  }
+  const maxEdge = 220;
+  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = new OffscreenCanvas(width, height);
+  const context = canvas.getContext("2d");
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+  return canvas.convertToBlob({ type: "image/jpeg", quality: 0.82 });
+}
+
+function startMovedPreviews() {
+  if (elements["moved-panel"].hidden) return;
+  for (const [previewKey, image] of movedPreviewImages) {
+    if (image.src || !image.isConnected) continue;
+    const cached = movedPreviewUrlCache.get(previewKey);
+    if (cached) {
+      image.src = cached;
+      continue;
+    }
+    const group = movedPreviewGroups.get(previewKey);
+    if (!group) continue;
+    movedPreviewQueue = movedPreviewQueue.then(async () => {
+      if (image.src || !image.isConnected) return;
+      try {
+        const blob = await decodeMovedPreview(group.analysisFile);
+        const url = URL.createObjectURL(blob);
+        if (image.isConnected && !image.src) {
+          movedPreviewUrlCache.set(previewKey, url);
+          image.src = url;
+        } else {
+          URL.revokeObjectURL(url);
+        }
+      } catch {
+        // Keep the placeholder; recovery buttons stay usable.
+      }
+    });
+  }
 }
 function renderControls() {
   filters.forEach((button) =>

@@ -66,6 +66,50 @@ test("Review Workspace selects only JPEG-first photo groups from an ordinary dir
   );
 });
 
+test("Review Workspace scans PNG and WEBP groups with JPEG-first analysis precedence", async () => {
+  const source = directoryHandle("camera-import", [
+    fileHandle("P2000001.JPG", { size: 101, lastModified: 11 }),
+    fileHandle("P2000001.PNG", { size: 102, lastModified: 12 }),
+    fileHandle("P2000001.WEBP", { size: 103, lastModified: 13 }),
+    fileHandle("P2000002.PNG", { size: 201, lastModified: 21 }),
+    fileHandle("P2000002.RW2", { size: 202, lastModified: 22 }),
+    fileHandle("P2000003.webp", { size: 301, lastModified: 31 }),
+    fileHandle("P2000004.HEIC", { size: 401, lastModified: 41 }),
+  ]);
+  const workspace = new ReviewWorkspace({ pickDirectory: async () => source });
+
+  const scan = await workspace.chooseDirectory();
+
+  assert.deepEqual(
+    scan.photoGroups.map((group) => ({
+      stem: group.stem,
+      analysisFilename: group.analysisFile.name,
+      memberNames: group.members.map((member) => member.name),
+      hasRaw: group.hasRaw,
+    })),
+    [
+      {
+        stem: "P2000001",
+        analysisFilename: "P2000001.JPG",
+        memberNames: ["P2000001.JPG", "P2000001.PNG", "P2000001.WEBP"],
+        hasRaw: false,
+      },
+      {
+        stem: "P2000002",
+        analysisFilename: "P2000002.PNG",
+        memberNames: ["P2000002.PNG", "P2000002.RW2"],
+        hasRaw: true,
+      },
+      {
+        stem: "P2000003",
+        analysisFilename: "P2000003.webp",
+        memberNames: ["P2000003.webp"],
+        hasRaw: false,
+      },
+    ],
+  );
+});
+
 test("Review Workspace refuses to use a recoverable review batch as a source directory", async () => {
   const batch = directoryHandle("_PhotoCull_Review_20260802", [
     fileHandle("P1000001.JPG"),

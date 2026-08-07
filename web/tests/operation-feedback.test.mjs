@@ -25,13 +25,13 @@ test("Operation feedback starts an unknown directory read without inventing prog
   );
 });
 
-test("Operation feedback gives JPEG analysis an honest determinate count after its total is known", () => {
+test("Operation feedback gives photo analysis an honest determinate count after its total is known", () => {
   const feedback = new OperationFeedback();
 
   feedback.start({ kind: "scan", title: "正在读取照片文件夹" });
   const state = feedback.progress({
     kind: "analysis",
-    title: "正在分析 JPEG",
+    title: "正在分析照片",
     completed: 2,
     total: 5,
     detail: "已分析 2 / 5 个 photo group",
@@ -40,7 +40,7 @@ test("Operation feedback gives JPEG analysis an honest determinate count after i
   assert.deepEqual(state, {
     kind: "analysis",
     mode: "determinate",
-    title: "正在分析 JPEG",
+    title: "正在分析照片",
     detail: "已分析 2 / 5 个 photo group",
     completed: 2,
     total: 5,

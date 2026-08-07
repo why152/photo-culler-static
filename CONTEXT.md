@@ -1,15 +1,15 @@
 # Photo Culler
 
-Photo Culler is a conservative, local-first review workflow for camera-imported photos. It identifies obvious JPEG technical issues while keeping the human in control of every selection and file action.
+Photo Culler is a conservative, local-first review workflow for camera-imported photos. It identifies obvious JPEG/PNG/WEBP technical issues while keeping the human in control of every selection and file action.
 
 ## Language
 
 **Photo group**:
-A same-stem JPEG or JPEG pair together with any matching RW2 and XMP members. It is the smallest unit that can be moved or restored.
+A same-stem JPEG, PNG, or WEBP analysis source together with any matching JPEG pair, RW2, and XMP members. It is the smallest unit that can be moved or restored.
 _Avoid_: Photo, file pair
 
 **Analysis source**:
-The JPEG member of a photo group used for visual analysis and preview. RAW and XMP members are bound to the group but are not analysed.
+The JPEG, PNG, or WEBP member of a photo group used for visual analysis and preview. RAW and XMP members are bound to the group but are not analysed.
 _Avoid_: Original, RAW preview
 
 **Review decision**:

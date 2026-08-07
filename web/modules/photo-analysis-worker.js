@@ -178,7 +178,7 @@ async function analyzeFile(file) {
       sharpness: 0,
       exposureScore: 0,
       technicalScore: 0,
-      reasons: [`无法读取 JPEG：${error.message || error}`],
+      reasons: [`无法读取照片：${error.message || error}`],
       thumbnail: null,
     };
   } finally {

@@ -1,10 +1,19 @@
-const JPEG_EXTENSIONS = new Set([".jpg", ".jpeg"]);
-const PHOTO_MEMBER_EXTENSIONS = new Set([".jpg", ".jpeg", ".rw2", ".xmp"]);
+const ANALYSIS_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+const PHOTO_MEMBER_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".rw2",
+  ".xmp",
+]);
 const MEMBER_ORDER = new Map([
   [".jpg", 0],
   [".jpeg", 0],
-  [".rw2", 1],
-  [".xmp", 2],
+  [".png", 1],
+  [".webp", 2],
+  [".rw2", 3],
+  [".xmp", 4],
 ]);
 export const REVIEW_BATCH_PREFIX = "_PhotoCull_Review_";
 const MANIFEST_NAME = "move-manifest.json";
@@ -147,7 +156,7 @@ function pendingAnalysis() {
     sharpness: 0,
     exposureScore: 0,
     technicalScore: 0,
-    reasons: ["正在分析 JPEG；请先进行人工审核。"],
+    reasons: ["正在分析照片；请先进行人工审核。"],
     thumbnail: null,
   };
 }
@@ -221,7 +230,7 @@ export async function scanPhotoGroups(directory) {
   )) {
     const members = unsortedMembers.sort(compareMembers);
     const analysisHandle = members.find((member) =>
-      JPEG_EXTENSIONS.has(extensionOf(member.name)),
+      ANALYSIS_EXTENSIONS.has(extensionOf(member.name)),
     );
     if (!analysisHandle) continue;
     groups.push({

@@ -81,9 +81,9 @@ test("local scan becomes immediate, honest progress while JPEG analysis continue
     "aria-valuemax",
     "8",
   );
-  await expect(feedback).toContainText("正在分析 JPEG");
+  await expect(feedback).toContainText("正在分析照片");
   await expect(page.locator(".photo-card.is-pending")).not.toHaveCount(8);
-  await expect(feedback).toContainText("JPEG 分析完成");
+  await expect(feedback).toContainText("照片分析完成");
   await expect(feedback.getByRole("progressbar")).toHaveAttribute(
     "aria-valuenow",
     "8",
@@ -109,7 +109,7 @@ test("resuming a saved folder refreshes grid thumbnails and completion feedback"
   await page.getByRole("button", { name: "继续上次筛选" }).click();
   await expect(page.locator(".photo-card")).toHaveCount(3);
   await expect(page.locator(".photo-card.is-pending")).not.toHaveCount(3);
-  await expect(feedback).toContainText("JPEG 分析完成");
+  await expect(feedback).toContainText("照片分析完成");
 });
 
 test("the content shell follows the system appearance while Photo Viewer keeps a dark image canvas", async ({
@@ -171,7 +171,7 @@ test("Reduce Motion keeps local operation feedback readable without relying on a
     "aria-valuemax",
     "2",
   );
-  await expect(feedback).toContainText("JPEG 分析完成");
+  await expect(feedback).toContainText("照片分析完成");
 });
 
 test("explicit recoverable move and restore report their own photo group progress and completion", async ({
@@ -206,7 +206,7 @@ test("explicit recoverable move and restore report their own photo group progres
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
   await expect(page.locator(".photo-card")).toHaveCount(2);
   await expect(page.getByRole("status", { name: "操作进度", exact: true })).toContainText(
-    "JPEG 分析完成",
+    "照片分析完成",
   );
 
   await page.getByRole("button", { name: "选择 P3000001.JPG" }).click();
@@ -254,13 +254,13 @@ test("viewer boundary feedback stays separate from a completed operation", async
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
   await page.evaluate(() => window.releasePhotoDirectory());
   const operation = page.getByRole("status", { name: "操作进度", exact: true });
-  await expect(operation).toContainText("JPEG 分析完成");
+  await expect(operation).toContainText("照片分析完成");
   await page.locator(".photo-card").first().click();
   await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("status", { name: "浏览反馈" })).toContainText(
     "已经是当前筛选结果中的最后一张照片。",
   );
-  await expect(operation).toContainText("JPEG 分析完成");
+  await expect(operation).toContainText("照片分析完成");
 });
 
 test("Photo Viewer exposes and completes a local image presentation state", async ({ page }) => {
@@ -283,7 +283,7 @@ test("Photo Viewer exposes and completes a local image presentation state", asyn
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
   await expect(
     page.getByRole("status", { name: "操作进度", exact: true }),
-  ).toContainText("JPEG 分析完成");
+  ).toContainText("照片分析完成");
   await page.evaluate(() => {
     const descriptor = Object.getOwnPropertyDescriptor(
       HTMLImageElement.prototype,
