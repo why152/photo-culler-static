@@ -20,3 +20,10 @@
 
 - 2026-08-08: 该回归由 Photo Viewer 缩放功能引入的布局改动造成；块级容器 + `object-fit: contain` 保持等比完整显示。
 - 2026-08-08: 实施完成并复核；Node 28/28、Chrome 31/31 通过，竖屏与横屏完整显示、缩放/切换/关闭均无回归。
+
+## Release evidence
+
+- `65a1ac9` — `fix: show portrait viewer images without clipping`
+- [GitHub Pages workflow #31201263179](https://github.com/why152/photo-culler-static/actions/runs/31201263179) completed successfully for the same commit SHA.
+- Live `site.css` SHA-256 identical to local output.
+- Final validation: 28 Node tests, 31 Chrome tests, syntax checks, and `git diff --check` all passed.
