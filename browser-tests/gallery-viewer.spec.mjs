@@ -132,6 +132,44 @@ test("Photo Viewer provides a filmstrip and continuous review before returning f
   ).toBe(true);
 });
 
+test("Photo Viewer releases its full-resolution object URL when it closes", async ({
+  page,
+}) => {
+  const sourceName = `photo-culler-viewer-release-${crypto.randomUUID()}`;
+  await page.addInitScript(() => {
+    const revokeObjectURL = URL.revokeObjectURL.bind(URL);
+    window.__revokedObjectUrls = [];
+    URL.revokeObjectURL = (url) => {
+      window.__revokedObjectUrls.push(url);
+      revokeObjectURL(url);
+    };
+  });
+  await page.goto("/");
+  await createPhotoSource(page, sourceName, 2);
+  await page.getByRole("button", { name: "选择照片文件夹" }).click();
+  await page.locator('[id="photo-card:photo-group:P1000001"]').click();
+
+  const viewerImage = page.locator("#viewer-image");
+  await expect(viewerImage).toHaveAttribute("src", /^blob:/);
+  const viewerUrl = await viewerImage.getAttribute("src");
+  const filmstripUrls = await page
+    .locator("#viewer-filmstrip img")
+    .evaluateAll((images) => images.map((image) => image.getAttribute("src")));
+  await page.getByRole("button", { name: "关闭大图" }).click();
+
+  await expect(viewerImage).not.toHaveAttribute("src", /.+/);
+  await expect(page.locator("#viewer-filmstrip img")).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (urls) =>
+          urls.every((url) => window.__revokedObjectUrls.includes(url)),
+        [viewerUrl, ...filmstripUrls],
+      ),
+    )
+    .toBe(true);
+});
+
 test("action selection is explicit, supports Shift ranges, and does not replace opening Photo Viewer", async ({
   page,
 }) => {

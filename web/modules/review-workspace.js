@@ -21,6 +21,19 @@ const REVIEW_DECISIONS = new Set(["pick", "keep", "reject"]);
 const REVIEW_FILTERS = new Set(["all", "unreviewed", ...REVIEW_DECISIONS]);
 const REVIEW_DENSITIES = new Set(["compact", "comfortable"]);
 
+function abortError(reason) {
+  if (reason?.name === "AbortError") return reason;
+  const error = new Error(
+    typeof reason === "string" ? reason : "目录分析已取消。",
+  );
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal.aborted) throw abortError(signal.reason);
+}
+
 function extensionOf(name) {
   const index = name.lastIndexOf(".");
   return index < 0 ? "" : name.slice(index).toLowerCase();
@@ -262,6 +275,7 @@ export class ReviewWorkspace {
     this.analyzer = analyzer;
     this.batchNameFactory = batchNameFactory;
     this.current = null;
+    this.analysisController = null;
   }
 
   async chooseDirectory({ onProgress, onAnalysis } = {}) {
@@ -273,7 +287,11 @@ export class ReviewWorkspace {
     if (!isOrdinarySourceDirectory(directory)) {
       throw new Error("请选择一个有效的普通照片文件夹。");
     }
+    this.analysisController?.abort(abortError());
+    const analysisController = new AbortController();
+    this.analysisController = analysisController;
     const scannedPhotoGroups = await scanPhotoGroups(directory);
+    throwIfAborted(analysisController.signal);
     const photoGroups = withPendingAnalysis(scannedPhotoGroups);
     const review = normalizeReview(
       await this.reviewStore.load(directory),
@@ -291,9 +309,21 @@ export class ReviewWorkspace {
     await this.reviewStore.rememberDirectory?.(directory);
     current.analysisPromise = Promise.resolve(
       this.analyzer(scannedPhotoGroups, {
-        onProgress,
+        signal: analysisController.signal,
+        onProgress: (done, total) => {
+          if (
+            analysisController.signal.aborted ||
+            this.current !== current
+          )
+            return;
+          onProgress?.(done, total);
+        },
         onResult: (analyzedGroup, done, total) => {
-          if (this.current !== current) return;
+          if (
+            analysisController.signal.aborted ||
+            this.current !== current
+          )
+            return;
           current.photoGroups = current.photoGroups.map((group) =>
             group.id === analyzedGroup.id ? analyzedGroup : group,
           );
@@ -309,7 +339,11 @@ export class ReviewWorkspace {
       }),
     )
       .then((analyzedPhotoGroups) => {
-        if (this.current !== current) return current;
+        if (
+          analysisController.signal.aborted ||
+          this.current !== current
+        )
+          return current;
         const analysisById = new Map(
           analyzedPhotoGroups.map((group) => [group.id, group]),
         );
@@ -326,6 +360,7 @@ export class ReviewWorkspace {
         return current;
       })
       .catch((error) => {
+        if (error?.name === "AbortError") return current;
         if (this.current === current) {
           current.analysisError = error;
           onAnalysis?.({ current, error, complete: true });
