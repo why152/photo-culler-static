@@ -492,6 +492,22 @@ h2 {
 .photo-group-card {
   position: relative;
   min-width: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 190px;
+}
+
+.grid-continuation {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  color: var(--secondary-text);
+}
+
+.grid-continuation p {
+  margin: 0;
 }
 
 .photo-card {

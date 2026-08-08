@@ -290,6 +290,58 @@ test("Review Workspace opens the review workbench before a slow analysis complet
   }
 });
 
+test("Review Workspace aborts stale analysis and ignores its late progress", async () => {
+  const oldSource = directoryHandle("old-camera-import", [
+    fileHandle("OLD00001.JPG"),
+    fileHandle("OLD00002.JPG"),
+  ]);
+  const newSource = directoryHandle("new-camera-import", [
+    fileHandle("NEW00001.JPG"),
+  ]);
+  const calls = [];
+  let finishOldAnalysis;
+  const analyzer = (groups, options) => {
+    calls.push({ groups, options });
+    if (calls.length === 1)
+      return new Promise((resolve) => {
+        finishOldAnalysis = resolve;
+      });
+    const analyzed = groups.map((group) => ({
+      ...group,
+      analysis: {
+        status: "keep",
+        sharpness: 70,
+        exposureScore: 90,
+        technicalScore: 74,
+        reasons: ["完成"],
+        thumbnail: null,
+      },
+    }));
+    options.onProgress(1, 1);
+    options.onResult(analyzed[0], 1, 1);
+    return Promise.resolve(analyzed);
+  };
+  const workspace = new ReviewWorkspace({ analyzer });
+  const progress = [];
+
+  const oldCurrent = await workspace.openDirectory(oldSource, {
+    onProgress: (done, total) => progress.push(`old:${done}/${total}`),
+  });
+  const newCurrent = await workspace.openDirectory(newSource, {
+    onProgress: (done, total) => progress.push(`new:${done}/${total}`),
+  });
+  await newCurrent.analysisPromise;
+
+  assert.equal(calls[0].options.signal.aborted, true);
+  calls[0].options.onProgress(1, 2);
+  finishOldAnalysis(calls[0].groups);
+  await oldCurrent.analysisPromise;
+
+  assert.deepEqual(progress, ["new:1/1"]);
+  assert.equal(workspace.current, newCurrent);
+  assert.equal(oldCurrent.analysisError, undefined);
+});
+
 test("browser capability gate requires a secure directory picker, enumeration, writable files and native move support", () => {
   const supported = browserCapabilities({
     isSecureContext: true,

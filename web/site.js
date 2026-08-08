@@ -1,6 +1,7 @@
 import { BrowserPhotoAnalyzer } from "./modules/photo-analysis.js";
 import { BrowserReviewStore } from "./modules/browser-store.js";
 import { GalleryInteraction } from "./modules/gallery-interaction.js";
+import { GridRenderWindow } from "./modules/grid-render-window.js";
 import { OperationFeedback } from "./modules/operation-feedback.js";
 import { ViewerZoom } from "./modules/viewer-zoom.js";
 import {
@@ -73,6 +74,7 @@ const workspace = new ReviewWorkspace({
 });
 let state = null;
 let gallery = null;
+const gridRenderWindow = new GridRenderWindow({ batchSize: 160 });
 const gridItems = new Map();
 const filmstripItems = new Map();
 const gridPreviewUrls = [];
@@ -81,6 +83,7 @@ const movedPreviewUrlCache = new Map();
 const movedPreviewGroups = new Map();
 const movedPreviewImages = new Map();
 let movedPreviewQueue = Promise.resolve();
+let movedPreviewGeneration = 0;
 let viewerPreview = null;
 const viewerZoom = new ViewerZoom();
 let decisionHistory = [];
@@ -89,6 +92,19 @@ let interactionStatusTimer = null;
 let lastGridVisibleIds = null;
 let lastFilmstripVisibleIds = null;
 let lastMovedBatchesSignature = null;
+const gridContinuationObserver =
+  typeof IntersectionObserver === "function"
+    ? new IntersectionObserver(
+        (entries) => {
+          if (
+            entries.some((entry) => entry.isIntersecting) &&
+            gridRenderWindow.revealNext()
+          )
+            renderGrid();
+        },
+        { rootMargin: "480px 0px" },
+      )
+    : null;
 const decisionLabels = {
   pick: "精选",
   keep: "保留",
@@ -177,19 +193,37 @@ function failOperation(operation) {
 function revokeUrls(urls) {
   urls.splice(0).forEach(URL.revokeObjectURL);
 }
-function clearUrls() {
-  revokeUrls(gridPreviewUrls);
+function stopMovedPreviews() {
+  movedPreviewGeneration += 1;
+}
+function releaseViewerPreview() {
+  const viewerImage = elements["viewer-image"];
+  viewerImage.onload = null;
+  viewerImage.onerror = null;
+  viewerImage.removeAttribute("src");
+  viewerImage.alt = "";
+  if (viewerPreview) URL.revokeObjectURL(viewerPreview.url);
+  viewerPreview = null;
+}
+function releaseFilmstripPreviews() {
   revokeUrls(filmstripPreviewUrls);
+  filmstripItems.clear();
+  elements["viewer-filmstrip"].replaceChildren();
+  lastFilmstripVisibleIds = null;
+}
+function clearUrls() {
+  gridContinuationObserver?.disconnect();
+  gridRenderWindow.reset();
+  stopMovedPreviews();
+  revokeUrls(gridPreviewUrls);
+  releaseFilmstripPreviews();
   movedPreviewUrlCache.forEach((url) => URL.revokeObjectURL(url));
   movedPreviewUrlCache.clear();
   movedPreviewGroups.clear();
   movedPreviewImages.clear();
-  if (viewerPreview) URL.revokeObjectURL(viewerPreview.url);
-  viewerPreview = null;
+  releaseViewerPreview();
   gridItems.clear();
-  filmstripItems.clear();
   lastGridVisibleIds = null;
-  lastFilmstripVisibleIds = null;
   lastMovedBatchesSignature = null;
 }
 function currentGroup() {
@@ -254,8 +288,10 @@ function restoreViewerReturn(returnTarget, fallback = activeFilterButton()) {
 }
 function renderGrid() {
   const visible = visibleGroups();
+  const renderWindow = gridRenderWindow.update(visible);
   elements["photo-grid"].className = `photo-grid density-${state.density}`;
   if (!visible.length) {
+    gridContinuationObserver?.disconnect();
     const empty = document.createElement("p");
     empty.className = "grid-empty";
     empty.setAttribute("role", "status");
@@ -264,14 +300,40 @@ function renderGrid() {
     lastGridVisibleIds = null;
     return;
   }
-  const visibleIds = visible.map((group) => group.id);
+  const visibleIds = renderWindow.groups.map((group) => group.id);
   const sameVisibleSet =
     lastGridVisibleIds &&
     visibleIds.length === lastGridVisibleIds.length &&
     visibleIds.every((id, index) => id === lastGridVisibleIds[index]);
-  if (sameVisibleSet) visible.forEach(renderGridItem);
+  if (sameVisibleSet) renderWindow.groups.forEach(renderGridItem);
   else {
-    elements["photo-grid"].replaceChildren(...visible.map(renderGridItem));
+    gridContinuationObserver?.disconnect();
+    const children = renderWindow.groups.map(renderGridItem);
+    if (renderWindow.hasMore) {
+      const continuation = document.createElement("div");
+      continuation.id = "grid-continuation";
+      continuation.className = "grid-continuation";
+      const status = document.createElement("p");
+      status.textContent = `已显示 ${renderWindow.shown} / ${renderWindow.total}`;
+      const button = document.createElement("button");
+      button.id = "grid-load-more";
+      button.type = "button";
+      button.className = "secondary-action";
+      button.textContent = `继续显示 ${Math.min(
+        gridRenderWindow.batchSize,
+        renderWindow.total - renderWindow.shown,
+      )} 个`;
+      button.addEventListener("click", () => {
+        if (gridRenderWindow.revealNext()) renderGrid();
+      });
+      continuation.append(status, button);
+      children.push(continuation);
+    }
+    elements["photo-grid"].replaceChildren(...children);
+    const continuation = elements["photo-grid"].querySelector(
+      "#grid-continuation",
+    );
+    if (continuation) gridContinuationObserver?.observe(continuation);
     lastGridVisibleIds = visibleIds;
   }
 }
@@ -372,16 +434,17 @@ function renderViewer() {
   const group = currentGroup();
   elements["photo-viewer"].hidden = !viewer || !group;
   if (!viewer || !group) {
+    releaseViewerPreview();
+    releaseFilmstripPreviews();
     elements["viewer-image-frame"].setAttribute("aria-busy", "false");
     elements["viewer-image-status"].hidden = true;
-    lastFilmstripVisibleIds = null;
     viewerZoom.reset();
     applyViewerZoom();
     return;
   }
   const viewerImage = elements["viewer-image"];
   if (viewerPreview?.photoGroupId !== group.id) {
-    if (viewerPreview) URL.revokeObjectURL(viewerPreview.url);
+    releaseViewerPreview();
     viewerZoom.reset();
     applyViewerZoom();
     const url = URL.createObjectURL(group.analysisFile);
@@ -534,6 +597,7 @@ function renderMovedBatches() {
     .join("|");
   if (signature === lastMovedBatchesSignature) return;
   lastMovedBatchesSignature = signature;
+  stopMovedPreviews();
   movedPreviewUrlCache.forEach((url) => URL.revokeObjectURL(url));
   movedPreviewUrlCache.clear();
   movedPreviewGroups.clear();
@@ -610,6 +674,7 @@ async function decodeMovedPreview(file) {
 
 function startMovedPreviews() {
   if (elements["moved-panel"].hidden) return;
+  const generation = ++movedPreviewGeneration;
   for (const [previewKey, image] of movedPreviewImages) {
     if (image.src || !image.isConnected) continue;
     const cached = movedPreviewUrlCache.get(previewKey);
@@ -620,11 +685,22 @@ function startMovedPreviews() {
     const group = movedPreviewGroups.get(previewKey);
     if (!group) continue;
     movedPreviewQueue = movedPreviewQueue.then(async () => {
-      if (image.src || !image.isConnected) return;
+      if (
+        generation !== movedPreviewGeneration ||
+        elements["moved-panel"].hidden ||
+        image.src ||
+        !image.isConnected
+      )
+        return;
       try {
         const blob = await decodeMovedPreview(group.analysisFile);
         const url = URL.createObjectURL(blob);
-        if (image.isConnected && !image.src) {
+        if (
+          generation === movedPreviewGeneration &&
+          !elements["moved-panel"].hidden &&
+          image.isConnected &&
+          !image.src
+        ) {
           movedPreviewUrlCache.set(previewKey, url);
           image.src = url;
         } else {
@@ -1001,9 +1077,11 @@ elements["resume-folder"].addEventListener("click", () =>
 elements["moved-groups-button"].addEventListener("click", () => {
   elements["moved-panel"].hidden = !elements["moved-panel"].hidden;
   if (!elements["moved-panel"].hidden) startMovedPreviews();
+  else stopMovedPreviews();
 });
 elements["close-moved-button"].addEventListener("click", () => {
   elements["moved-panel"].hidden = true;
+  stopMovedPreviews();
 });
 elements["viewer-close"].addEventListener("click", closeViewer);
 elements["viewer-previous"].addEventListener("click", () => moveViewer(-1));
@@ -1147,4 +1225,5 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("beforeunload", () => {
   clearUrls();
   analyzer.close();
+  void reviewStore.close();
 });
