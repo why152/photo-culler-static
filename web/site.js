@@ -4,6 +4,7 @@ import { GalleryInteraction } from "./modules/gallery-interaction.js";
 import { GridRenderWindow } from "./modules/grid-render-window.js";
 import { OperationFeedback } from "./modules/operation-feedback.js";
 import { ViewerZoom } from "./modules/viewer-zoom.js";
+import { ReviewDecisionHistory, ReviewSaveQueue } from "./modules/review-persistence.js";
 import {
   browserCapabilities,
   ReviewWorkspace,
@@ -86,7 +87,15 @@ let movedPreviewQueue = Promise.resolve();
 let movedPreviewGeneration = 0;
 let viewerPreview = null;
 const viewerZoom = new ViewerZoom();
-let decisionHistory = [];
+let decisionHistory = new ReviewDecisionHistory();
+let reviewSaveQueue = null;
+let workspaceTransition = false;
+const reviewSaveStatus = document.createElement("div");
+reviewSaveStatus.id = "review-save-status";
+reviewSaveStatus.className = "interaction-status";
+reviewSaveStatus.setAttribute("role", "status");
+reviewSaveStatus.hidden = true;
+elements["interaction-status"].after(reviewSaveStatus);
 let operationCompletionTimer = null;
 let interactionStatusTimer = null;
 let lastGridVisibleIds = null;
@@ -269,8 +278,36 @@ function reviewPayload() {
     density: state.density,
   };
 }
-async function persistReview() {
-  state.review = await workspace.saveReview(reviewPayload());
+function persistReview() {
+  // Share optimistic preferences with analysis callbacks as well as the UI.
+  state.review.filter = state.filter;
+  state.review.density = state.density;
+  void reviewSaveQueue.enqueue(reviewPayload());
+}
+function renderReviewSaveStatus({ pending, error }) {
+  reviewSaveStatus.replaceChildren();
+  reviewSaveStatus.hidden = !pending && !error;
+  if (error) {
+    reviewSaveStatus.append("审核记录保存失败，当前决定仍保留在本页。请重试后再切换目录或操作文件。 ");
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "重试保存";
+    retry.addEventListener("click", () => void reviewSaveQueue.retry());
+    reviewSaveStatus.append(retry);
+  } else if (pending) reviewSaveStatus.textContent = "正在保存审核记录…";
+}
+async function flushReview() {
+  return !reviewSaveQueue || await reviewSaveQueue.flush();
+}
+function reconcileFileOperationError() {
+  const current = workspace.current;
+  if (current?.directory !== state?.directory) return;
+  if (current.photoGroups !== state.photoGroups || current.movedBatches !== state.movedBatches) {
+    applyScan(current);
+    // The files may have moved successfully even when the final store write
+    // failed. Show the on-disk result and retry that normalized review state.
+    persistReview();
+  }
 }
 function buttonSelected(button, selected) {
   button.classList.toggle("active", selected);
@@ -433,6 +470,10 @@ function renderViewer() {
   const viewer = gallery?.viewerState();
   const group = currentGroup();
   elements["photo-viewer"].hidden = !viewer || !group;
+  // Keep the single status and retry control inside the active dialog's
+  // stacking context, then return it to the workbench when the viewer closes.
+  if (viewer && group) elements["photo-viewer"].append(reviewSaveStatus);
+  else elements["interaction-status"].after(reviewSaveStatus);
   if (!viewer || !group) {
     releaseViewerPreview();
     releaseFilmstripPreviews();
@@ -832,6 +873,15 @@ function applyScan(scan) {
     density: scan.review.density,
     review: scan.review,
   };
+  decisionHistory = new ReviewDecisionHistory();
+  const sessionState = state;
+  reviewSaveQueue = new ReviewSaveQueue({
+    save: (snapshot) => workspace.saveReview(snapshot, scan, { apply: false }),
+    onStatus: (status) => {
+      if (state === sessionState) renderReviewSaveStatus(status);
+    },
+  });
+  renderReviewSaveStatus({ pending: 0, error: null });
   gallery = new GalleryInteraction({
     photoGroups: state.photoGroups,
     filter: state.filter,
@@ -844,14 +894,21 @@ function applyScan(scan) {
   elements["choose-folder"].hidden = false;
   render();
 }
-async function openWorkspace(action) {
+async function openWorkspace(action, pendingPicker = null) {
+  if (workspaceTransition) return;
+  workspaceTransition = true;
   setFolderActionsBusy(true);
-  beginOperation({
-    kind: "scan",
-    title: "正在读取照片文件夹",
-    detail: "正在整理本地 photo group…",
-  });
   try {
+    if (!await flushReview()) {
+      // Keep the transition locked until an already-open native picker closes.
+      if (pendingPicker) await pendingPicker;
+      return;
+    }
+    beginOperation({
+      kind: "scan",
+      title: "正在读取照片文件夹",
+      detail: "正在整理本地 photo group…",
+    });
     const scan = await action({
       onProgress: (done, total) => analysisFeedback(done, total),
       onAnalysis: ({ current, done, total, complete, error, groupId }) => {
@@ -866,8 +923,10 @@ async function openWorkspace(action) {
           );
           if (group) renderAnalysisResult(group);
         }
-        if (error) showError(error);
-        else analysisFeedback(done, total, complete);
+        if (!workspaceTransition) {
+          if (error) showError(error);
+          else analysisFeedback(done, total, complete);
+        }
       },
     });
     applyScan(scan);
@@ -879,6 +938,7 @@ async function openWorkspace(action) {
     }
     else showError(error);
   } finally {
+    workspaceTransition = false;
     setFolderActionsBusy(false);
   }
 }
@@ -891,30 +951,27 @@ function renderAnalysisResult(group) {
     renderFilmstripItem(group, viewer.photoGroupId);
   if (viewer.photoGroupId === group.id) updateViewerCopy(group);
 }
-async function decide(decision) {
+function decide(decision) {
+  if (workspaceTransition) return;
   const group = currentGroup();
   if (!group) return;
   const next = neighbor(1);
-  decisionHistory.push({ ...reviewPayload() });
-  if (decision) state.review.decisions[group.id] = decision;
-  else delete state.review.decisions[group.id];
-  await persistReview();
+  if (decisionHistory.record(state.review.decisions, group.id, decision)) persistReview();
   if (next) gallery.goTo(next.id);
   const viewerReturnTarget = render();
   if (viewerReturnTarget)
     setInteractionStatus("当前大图不在新的筛选结果中，已关闭。");
 }
-async function undoDecision() {
-  const previous = decisionHistory.pop();
-  if (!previous) return;
-  state.review = await workspace.saveReview(previous);
-  state.filter = state.review.filter;
-  state.density = state.review.density;
+function undoDecision() {
+  if (workspaceTransition) return;
+  if (!decisionHistory.undo(state.review.decisions)) return;
+  persistReview();
   render();
 }
-async function changeFilter(button) {
+function changeFilter(button) {
+  if (!state || workspaceTransition) return;
   state.filter = button.dataset.filter;
-  await persistReview();
+  persistReview();
   const returnTarget = render({ viewerCloseFallback: button });
   if (!returnTarget) return;
   setInteractionStatus("当前大图不在新的筛选结果中，已关闭。");
@@ -924,6 +981,7 @@ function clearActionSelection() {
   render();
 }
 async function moveActionSelection() {
+  if (workspaceTransition) return;
   const selectedIds = gallery?.selectedPhotoGroupIds() ?? [];
   if (!selectedIds.length) return;
   const selectedGroups = state.photoGroups.filter((group) =>
@@ -943,6 +1001,8 @@ async function moveActionSelection() {
     return;
   }
   elements["move-button"].disabled = true;
+  workspaceTransition = true;
+  setFolderActionsBusy(true);
   progressOperation({
     kind: "move",
     title: "正在移动 photo group",
@@ -951,6 +1011,10 @@ async function moveActionSelection() {
     detail: `已移动 0 / ${groupCount} 个 photo group；文件 0 / ${fileCount}。`,
   });
   try {
+    if (!await flushReview()) {
+      renderOperationFeedback(operationFeedback.clear());
+      return;
+    }
     await workspace.movePhotoGroups(selectedIds, {
       onProgress: ({
         filesDone,
@@ -973,18 +1037,24 @@ async function moveActionSelection() {
       detail: `${groupCount} 个 photo group 可随时从“已移动”恢复。`,
     });
   } catch (error) {
+    reconcileFileOperationError();
     showError(error);
   } finally {
+    workspaceTransition = false;
+    setFolderActionsBusy(false);
     renderControls();
   }
 }
 async function restoreBatch(batchId) {
+  if (workspaceTransition) return;
   const batch = state?.movedBatches.find((candidate) => candidate.id === batchId);
   const groupCount = batch?.photoGroups.length ?? 0;
   const fileCount = batch?.photoGroups.reduce(
     (count, group) => count + group.members.length,
     0,
   );
+  workspaceTransition = true;
+  setFolderActionsBusy(true);
   progressOperation({
     kind: "restore",
     title: "正在恢复 review batch",
@@ -993,6 +1063,11 @@ async function restoreBatch(batchId) {
     detail: `已恢复 0 / ${groupCount} 个 photo group；文件 0 / ${fileCount}。`,
   });
   try {
+    if (!await flushReview()) {
+      renderOperationFeedback(operationFeedback.clear());
+      renderControls();
+      return;
+    }
     await workspace.restoreMovedBatch(batchId, {
       onProgress: ({ filesDone, fileCount: totalFiles, groupsDone, groupCount: totalGroups }) =>
         progressOperation({
@@ -1010,13 +1085,21 @@ async function restoreBatch(batchId) {
       detail: `${groupCount} 个 photo group 已回到原照片文件夹。`,
     });
   } catch (error) {
+    reconcileFileOperationError();
     showError(error);
+  } finally {
+    workspaceTransition = false;
+    setFolderActionsBusy(false);
+    renderControls();
   }
 }
 async function restoreGroup(batchId, groupId) {
+  if (workspaceTransition) return;
   const batch = state?.movedBatches.find((candidate) => candidate.id === batchId);
   const group = batch?.photoGroups.find((candidate) => candidate.id === groupId);
   const fileCount = group?.members.length ?? 0;
+  workspaceTransition = true;
+  setFolderActionsBusy(true);
   progressOperation({
     kind: "restore",
     title: "正在恢复 photo group",
@@ -1025,6 +1108,11 @@ async function restoreGroup(batchId, groupId) {
     detail: `已恢复 0 / 1 个 photo group；文件 0 / ${fileCount}。`,
   });
   try {
+    if (!await flushReview()) {
+      renderOperationFeedback(operationFeedback.clear());
+      renderControls();
+      return;
+    }
     await workspace.restoreMovedPhotoGroup(batchId, groupId, {
       onProgress: ({ filesDone, fileCount: totalFiles }) =>
         progressOperation({
@@ -1042,7 +1130,12 @@ async function restoreGroup(batchId, groupId) {
       detail: "完整 photo group 已回到原照片文件夹。",
     });
   } catch (error) {
+    reconcileFileOperationError();
     showError(error);
+  } finally {
+    workspaceTransition = false;
+    setFolderActionsBusy(false);
+    renderControls();
   }
 }
 const capabilities = browserCapabilities();
@@ -1060,7 +1153,17 @@ if (
     "此浏览器缺少安全的本地目录移动能力。请使用 HTTPS 下的最新版 macOS Chrome 或 Edge。";
 } else elements["capability-status"].hidden = true;
 function choosePhotoDirectory() {
-  void openWorkspace((options) => workspace.chooseDirectory(options));
+  if (workspaceTransition) return;
+  if (reviewSaveQueue?.error && !reviewSaveQueue.pending) return;
+  // Request the picker in the click's activation window; persistence must
+  // finish before opening the selected workspace, not before showing a picker.
+  const pickedDirectory = window.showDirectoryPicker({ id: "photo-culler-source", mode: "readwrite" })
+    .then((directory) => ({ directory }), (error) => ({ error }));
+  void openWorkspace(async (options) => {
+    const { directory, error } = await pickedDirectory;
+    if (error) throw error;
+    return workspace.openDirectory(directory, options);
+  }, pickedDirectory);
 }
 function selectSuggestedRemovals() {
   gallery.selectVisiblePhotoGroups();
@@ -1159,9 +1262,10 @@ filters.forEach((button) =>
   button.addEventListener("click", () => changeFilter(button)),
 );
 densities.forEach((button) =>
-  button.addEventListener("click", async () => {
+  button.addEventListener("click", () => {
+    if (!state || workspaceTransition) return;
     state.density = button.dataset.density;
-    await persistReview();
+    persistReview();
     render();
   }),
 );
@@ -1222,7 +1326,14 @@ document.addEventListener("keydown", (event) => {
     clearActionSelection();
   }
 });
-window.addEventListener("beforeunload", () => {
+window.addEventListener("beforeunload", (event) => {
+  if (reviewSaveQueue?.pending || reviewSaveQueue?.error) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+});
+window.addEventListener("pagehide", (event) => {
+  if (event.persisted) return;
   clearUrls();
   analyzer.close();
   void reviewStore.close();

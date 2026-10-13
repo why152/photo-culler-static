@@ -99,6 +99,21 @@ async function writeJournal(directory, journal) {
   await writable.close();
 }
 
+async function markInterrupted(directory, journal, error) {
+  journal.status = "interrupted";
+  try {
+    await writeJournal(directory, journal);
+  } catch (journalError) {
+    // Preserve the failure that stopped movement; the earlier journal still
+    // lets recovery inspect the actual locations of every member.
+    try {
+      if (error && typeof error === "object") error.journalError = journalError;
+    } catch {
+      // A frozen or otherwise non-extensible primary error must still win.
+    }
+  }
+}
+
 async function readJournal(directory) {
   const handle = await directory.getFileHandle(MANIFEST_NAME);
   const file = await handle.getFile();
@@ -108,16 +123,18 @@ async function readJournal(directory) {
 async function getFileOrNull(directory, name) {
   try {
     return await directory.getFileHandle(name);
-  } catch {
-    return null;
+  } catch (error) {
+    if (error?.name === "NotFoundError") return null;
+    throw error;
   }
 }
 
 async function getDirectoryOrNull(directory, name) {
   try {
     return await directory.getDirectoryHandle(name);
-  } catch {
-    return null;
+  } catch (error) {
+    if (error?.name === "NotFoundError") return null;
+    throw error;
   }
 }
 
@@ -152,8 +169,10 @@ async function discoverMovedBatches(sourceDirectory) {
         journal,
         photoGroups: await scanPhotoGroups(handle),
       });
-    } catch {
-      // A directory without a valid journal is not a recoverable review batch.
+    } catch (error) {
+      // Missing or malformed journals are not recoverable review batches.
+      if (error?.name !== "NotFoundError" && error?.name !== "SyntaxError")
+        throw error;
     }
   }
   return movedBatches.sort((left, right) => right.id.localeCompare(left.id));
@@ -216,12 +235,17 @@ async function restoreActions({
   onProgress,
 }) {
   const reverseActions = [...actions].reverse();
-  for (const [index, { record, destination }] of reverseActions.entries()) {
-    await destination.move(sourceDirectory, record.source);
-    record.state = "restored";
-    journal.status = "completed";
-    await writeJournal(batchDirectory, journal);
-    onProgress(restoreProgress(reverseActions, index, groupCount));
+  try {
+    for (const [index, { record, destination }] of reverseActions.entries()) {
+      await destination.move(sourceDirectory, record.source);
+      record.state = "restored";
+      journal.status = "completed";
+      await writeJournal(batchDirectory, journal);
+      onProgress(restoreProgress(reverseActions, index, groupCount));
+    }
+  } catch (error) {
+    await markInterrupted(batchDirectory, journal, error);
+    throw error;
   }
 }
 
@@ -276,14 +300,35 @@ export class ReviewWorkspace {
     this.batchNameFactory = batchNameFactory;
     this.current = null;
     this.analysisController = null;
+    this.activeOperation = null;
   }
 
-  async chooseDirectory({ onProgress, onAnalysis } = {}) {
-    const directory = await this.pickDirectory();
-    return this.openDirectory(directory, { onProgress, onAnalysis });
+  async #withExclusiveOperation(operation, callback) {
+    if (this.activeOperation) {
+      throw new Error("正在打开目录、移动或恢复照片，请等待当前操作完成。");
+    }
+    this.activeOperation = operation;
+    try {
+      return await callback();
+    } finally {
+      this.activeOperation = null;
+    }
   }
 
-  async openDirectory(directory, { onProgress, onAnalysis } = {}) {
+  async chooseDirectory(options = {}) {
+    return this.#withExclusiveOperation("opening", async () => {
+      const directory = await this.pickDirectory();
+      return this.#openDirectoryContents(directory, options);
+    });
+  }
+
+  async openDirectory(directory, options = {}) {
+    return this.#withExclusiveOperation("opening", () =>
+      this.#openDirectoryContents(directory, options),
+    );
+  }
+
+  async #openDirectoryContents(directory, { onProgress, onAnalysis } = {}) {
     if (!isOrdinarySourceDirectory(directory)) {
       throw new Error("请选择一个有效的普通照片文件夹。");
     }
@@ -305,8 +350,9 @@ export class ReviewWorkspace {
       review,
       movedBatches,
     };
-    this.current = current;
     await this.reviewStore.rememberDirectory?.(directory);
+    throwIfAborted(analysisController.signal);
+    this.current = current;
     current.analysisPromise = Promise.resolve(
       this.analyzer(scannedPhotoGroups, {
         signal: analysisController.signal,
@@ -360,7 +406,11 @@ export class ReviewWorkspace {
         return current;
       })
       .catch((error) => {
-        if (error?.name === "AbortError") return current;
+        if (
+          error?.name === "AbortError" ||
+          analysisController.signal.aborted ||
+          this.current !== current
+        ) return current;
         if (this.current === current) {
           current.analysisError = error;
           onAnalysis?.({ current, error, complete: true });
@@ -370,30 +420,38 @@ export class ReviewWorkspace {
     return current;
   }
 
-  async resumeLastDirectory({ onProgress, onAnalysis } = {}) {
-    const directory = await this.reviewStore.loadLastDirectory?.();
-    if (!directory) throw new Error("没有可继续的上次照片文件夹。");
-    if (typeof directory.requestPermission === "function") {
-      const permission = await directory.requestPermission({
-        mode: "readwrite",
-      });
-      if (permission !== "granted")
-        throw new Error("需要重新授予该照片文件夹的读写权限。");
-    }
-    return this.openDirectory(directory, { onProgress, onAnalysis });
+  async resumeLastDirectory(options = {}) {
+    return this.#withExclusiveOperation("opening", async () => {
+      const directory = await this.reviewStore.loadLastDirectory?.();
+      if (!directory) throw new Error("没有可继续的上次照片文件夹。");
+      if (typeof directory.requestPermission === "function") {
+        const permission = await directory.requestPermission({ mode: "readwrite" });
+        if (permission !== "granted")
+          throw new Error("需要重新授予该照片文件夹的读写权限。");
+      }
+      return this.#openDirectoryContents(directory, options);
+    });
   }
 
-  async saveReview(review) {
-    if (!this.current) throw new Error("请先选择一个照片文件夹。");
-    this.current.review = normalizeReview(review, this.current.photoGroups);
-    await this.reviewStore.save(this.current.directory, this.current.review);
-    return this.current.review;
+  async saveReview(review, current = this.current, { apply = true } = {}) {
+    if (!current) throw new Error("请先选择一个照片文件夹。");
+    const snapshot = normalizeReview(review, current.photoGroups);
+    if (apply) current.review = normalizeReview(snapshot, current.photoGroups);
+    await this.reviewStore.save(current.directory, snapshot);
+    return snapshot;
   }
 
-  async movePhotoGroups(photoGroupIds, { onProgress = () => {} } = {}) {
-    if (!this.current) throw new Error("请先选择一个照片文件夹。");
+  async movePhotoGroups(photoGroupIds, options = {}) {
+    return this.#withExclusiveOperation("moving", () =>
+      this.#movePhotoGroupsInWorkspace(photoGroupIds, options),
+    );
+  }
+
+  async #movePhotoGroupsInWorkspace(photoGroupIds, { onProgress = () => {} } = {}) {
+    const current = this.current;
+    if (!current) throw new Error("请先选择一个照片文件夹。");
     const wanted = new Set(photoGroupIds);
-    const groups = this.current.photoGroups.filter((group) =>
+    const groups = current.photoGroups.filter((group) =>
       wanted.has(group.id),
     );
     if (!groups.length || groups.length !== wanted.size)
@@ -411,9 +469,9 @@ export class ReviewWorkspace {
     const batchName = this.batchNameFactory();
     if (!batchName.startsWith(REVIEW_BATCH_PREFIX))
       throw movementError("review batch 名称无效。");
-    if (await getDirectoryOrNull(this.current.directory, batchName))
+    if (await getDirectoryOrNull(current.directory, batchName))
       throw movementError("同名 review batch 已存在，请重试。");
-    const destination = await this.current.directory.getDirectoryHandle(
+    const destination = await current.directory.getDirectoryHandle(
       batchName,
       { create: true },
     );
@@ -435,7 +493,7 @@ export class ReviewWorkspace {
     try {
       for (const [index, record] of records.entries()) {
         const source = await getFileOrNull(
-          this.current.directory,
+          current.directory,
           record.source,
         );
         if (!source) throw movementError(`找不到源文件 ${record.source}。`);
@@ -456,8 +514,7 @@ export class ReviewWorkspace {
       journal.status = "completed";
       await writeJournal(destination, journal);
     } catch (error) {
-      journal.status = "interrupted";
-      await writeJournal(destination, journal);
+      await markInterrupted(destination, journal, error);
       throw error;
     }
 
@@ -467,15 +524,15 @@ export class ReviewWorkspace {
       journal,
       photoGroups: await scanPhotoGroups(destination),
     };
-    this.current.photoGroups = this.current.photoGroups.filter(
+    current.photoGroups = current.photoGroups.filter(
       (group) => !wanted.has(group.id),
     );
-    this.current.review = normalizeReview(
-      this.current.review,
-      this.current.photoGroups,
+    current.review = normalizeReview(
+      current.review,
+      current.photoGroups,
     );
-    await this.reviewStore.save(this.current.directory, this.current.review);
-    this.current.movedBatches = [movedBatch, ...this.current.movedBatches];
+    current.movedBatches = [movedBatch, ...current.movedBatches];
+    await this.saveReview(current.review, current, { apply: false });
     return {
       id: movedBatch.id,
       count: groups.length,
@@ -484,9 +541,16 @@ export class ReviewWorkspace {
     };
   }
 
-  async restoreMovedBatch(batchId, { onProgress = () => {} } = {}) {
-    if (!this.current) throw new Error("请先选择一个照片文件夹。");
-    const batch = this.current.movedBatches.find(
+  async restoreMovedBatch(batchId, options = {}) {
+    return this.#withExclusiveOperation("restoring", () =>
+      this.#restoreMovedBatchInWorkspace(batchId, options),
+    );
+  }
+
+  async #restoreMovedBatchInWorkspace(batchId, { onProgress = () => {} } = {}) {
+    const current = this.current;
+    if (!current) throw new Error("请先选择一个照片文件夹。");
+    const batch = current.movedBatches.find(
       (candidate) => candidate.id === batchId,
     );
     if (!batch)
@@ -496,7 +560,7 @@ export class ReviewWorkspace {
       throw new Error("review batch 的 movement journal 无效。");
 
     const actions = await prepareRestoreActions(
-      this.current.directory,
+      current.directory,
       batch.directory,
       journal.records,
     );
@@ -504,35 +568,43 @@ export class ReviewWorkspace {
       actions,
       journal,
       batchDirectory: batch.directory,
-      sourceDirectory: this.current.directory,
+      sourceDirectory: current.directory,
       groupCount: new Set(journal.records.map((record) => record.groupId)).size,
       onProgress,
     });
     journal.status = "undone";
     await writeJournal(batch.directory, journal);
     await batch.directory.removeEntry(MANIFEST_NAME);
-    await this.current.directory.removeEntry(batch.id);
-    this.current.movedBatches = this.current.movedBatches.filter(
+    await current.directory.removeEntry(batch.id);
+    current.movedBatches = current.movedBatches.filter(
       (candidate) => candidate.id !== batchId,
     );
-    this.current.photoGroups = await this.analyzer(
-      await scanPhotoGroups(this.current.directory),
+    this.analysisController?.abort(abortError());
+    current.photoGroups = await this.analyzer(
+      await scanPhotoGroups(current.directory),
     );
-    this.current.review = normalizeReview(
-      this.current.review,
-      this.current.photoGroups,
+    current.review = normalizeReview(
+      current.review,
+      current.photoGroups,
     );
-    await this.reviewStore.save(this.current.directory, this.current.review);
+    await this.saveReview(current.review, current, { apply: false });
     return { restored: true, count: actions.length };
   }
 
-  async restoreMovedPhotoGroup(
+  async restoreMovedPhotoGroup(batchId, photoGroupId, options = {}) {
+    return this.#withExclusiveOperation("restoring", () =>
+      this.#restoreMovedPhotoGroupInWorkspace(batchId, photoGroupId, options),
+    );
+  }
+
+  async #restoreMovedPhotoGroupInWorkspace(
     batchId,
     photoGroupId,
     { onProgress = () => {} } = {},
   ) {
-    if (!this.current) throw new Error("请先选择一个照片文件夹。");
-    const batch = this.current.movedBatches.find(
+    const current = this.current;
+    if (!current) throw new Error("请先选择一个照片文件夹。");
+    const batch = current.movedBatches.find(
       (candidate) => candidate.id === batchId,
     );
     if (!batch)
@@ -547,7 +619,7 @@ export class ReviewWorkspace {
       throw new Error("该 photo group 不在指定的 review batch 中。");
 
     const actions = await prepareRestoreActions(
-      this.current.directory,
+      current.directory,
       batch.directory,
       records,
     );
@@ -555,7 +627,7 @@ export class ReviewWorkspace {
       actions,
       journal,
       batchDirectory: batch.directory,
-      sourceDirectory: this.current.directory,
+      sourceDirectory: current.directory,
       groupCount: 1,
       onProgress,
     });
@@ -565,8 +637,8 @@ export class ReviewWorkspace {
       journal.status = "undone";
       await writeJournal(batch.directory, journal);
       await batch.directory.removeEntry(MANIFEST_NAME);
-      await this.current.directory.removeEntry(batch.id);
-      this.current.movedBatches = this.current.movedBatches.filter(
+      await current.directory.removeEntry(batch.id);
+      current.movedBatches = current.movedBatches.filter(
         (candidate) => candidate.id !== batchId,
       );
     } else {
@@ -575,14 +647,15 @@ export class ReviewWorkspace {
       batch.journal = journal;
       batch.photoGroups = remainingPhotoGroups;
     }
-    this.current.photoGroups = await this.analyzer(
-      await scanPhotoGroups(this.current.directory),
+    this.analysisController?.abort(abortError());
+    current.photoGroups = await this.analyzer(
+      await scanPhotoGroups(current.directory),
     );
-    this.current.review = normalizeReview(
-      this.current.review,
-      this.current.photoGroups,
+    current.review = normalizeReview(
+      current.review,
+      current.photoGroups,
     );
-    await this.reviewStore.save(this.current.directory, this.current.review);
+    await this.saveReview(current.review, current, { apply: false });
     return { restored: true, remainingGroups: remainingPhotoGroups.length };
   }
 }

@@ -21,6 +21,11 @@ function directoryHandle(name, entries) {
   return {
     kind: "directory",
     name,
+    async getFileHandle(filename) {
+      const handle = entries.find((entry) => entry.name === filename);
+      if (!handle) throw new DOMException("Missing file", "NotFoundError");
+      return handle;
+    },
     async *values() {
       yield* entries;
     },
@@ -370,4 +375,68 @@ test("browser capability gate requires a secure directory picker, enumeration, w
     fileWritable: false,
     fileMove: false,
   });
+});
+
+test("saveReview captures its directory and detached snapshot before asynchronous persistence", async () => {
+  const source = directoryHandle("source", [fileHandle("ONE.JPG")]);
+  const next = directoryHandle("next", [fileHandle("TWO.JPG")]);
+  let release;
+  let savedDirectory;
+  let savedSnapshot;
+  const workspace = new ReviewWorkspace({ reviewStore: {
+    load: async () => null,
+    save: async (directory, snapshot) => {
+      savedDirectory = directory;
+      savedSnapshot = snapshot;
+      await new Promise((resolve) => { release = resolve; });
+    },
+  } });
+  const oldCurrent = await workspace.openDirectory(source);
+  const input = { decisions: { "photo-group:ONE": "keep" }, marked: ["photo-group:ONE"] };
+  const saving = workspace.saveReview(input);
+  input.decisions["photo-group:ONE"] = "reject";
+  oldCurrent.review.decisions["photo-group:ONE"] = "pick";
+  oldCurrent.review.marked.length = 0;
+  const newCurrent = await workspace.openDirectory(next);
+  release();
+  const result = await saving;
+  assert.equal(savedDirectory, source);
+  assert.equal(result, savedSnapshot);
+  assert.equal(savedSnapshot.decisions["photo-group:ONE"], "keep");
+  assert.deepEqual(savedSnapshot.marked, ["photo-group:ONE"]);
+  assert.equal(workspace.current, newCurrent);
+  assert.deepEqual(newCurrent.review.decisions, {});
+});
+
+test("queued persistence can save an old snapshot without overwriting newer optimistic decisions", async () => {
+  const source = directoryHandle("source", [fileHandle("ONE.JPG")]);
+  let saved;
+  const workspace = new ReviewWorkspace({ reviewStore: {
+    load: async () => null,
+    save: async (_directory, snapshot) => { saved = snapshot; },
+  } });
+  const current = await workspace.openDirectory(source);
+  current.review.decisions["photo-group:ONE"] = "reject";
+  await workspace.saveReview({ decisions: { "photo-group:ONE": "keep" } }, current, { apply: false });
+  assert.equal(saved.decisions["photo-group:ONE"], "keep");
+  assert.equal(current.review.decisions["photo-group:ONE"], "reject");
+});
+
+test("superseded analysis failures never report errors against the active workspace", async () => {
+  const source = directoryHandle("source", [fileHandle("ONE.JPG")]);
+  const next = directoryHandle("next", [fileHandle("TWO.JPG")]);
+  let rejectOld;
+  let calls = 0;
+  const events = [];
+  const workspace = new ReviewWorkspace({ analyzer: (groups) => {
+    calls += 1;
+    if (calls === 1) return new Promise((_resolve, reject) => { rejectOld = reject; });
+    return Promise.resolve(groups);
+  } });
+  const oldCurrent = await workspace.openDirectory(source, { onAnalysis: (event) => events.push(event) });
+  await workspace.openDirectory(next);
+  rejectOld(new Error("Late worker failure"));
+  await oldCurrent.analysisPromise;
+  assert.equal(oldCurrent.analysisError, undefined);
+  assert.deepEqual(events, []);
 });
