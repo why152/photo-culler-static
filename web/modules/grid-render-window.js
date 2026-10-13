@@ -4,17 +4,23 @@ export class GridRenderWindow {
       throw new Error("Grid batch size must be a positive integer.");
     this.batchSize = batchSize;
     this.ids = [];
+    this.photoGroups = null;
     this.limit = 0;
   }
 
   update(photoGroups) {
-    const ids = photoGroups.map(({ id }) => id);
-    const sameSet =
-      ids.length === this.ids.length &&
-      ids.every((id, index) => id === this.ids[index]);
-    if (!sameSet) {
-      this.ids = ids;
-      this.limit = Math.min(this.batchSize, ids.length);
+    // Membership is immutable for one array identity. Analysis may update the
+    // objects in place; filtering or adding/removing groups supplies a new array.
+    if (photoGroups !== this.photoGroups) {
+      const ids = photoGroups.map(({ id }) => id);
+      const sameSet =
+        ids.length === this.ids.length &&
+        ids.every((id, index) => id === this.ids[index]);
+      if (!sameSet) {
+        this.ids = ids;
+        this.limit = Math.min(this.batchSize, ids.length);
+      }
+      this.photoGroups = photoGroups;
     }
     const shown = Math.min(this.limit, photoGroups.length);
     return {
@@ -37,6 +43,7 @@ export class GridRenderWindow {
 
   reset() {
     this.ids = [];
+    this.photoGroups = null;
     this.limit = 0;
   }
 }

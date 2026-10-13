@@ -303,6 +303,27 @@ export class ReviewWorkspace {
     this.activeOperation = null;
   }
 
+  #photoGroupIndices = new WeakMap();
+
+  #indexPhotoGroups(current) {
+    this.#photoGroupIndices.set(current, new Map(
+      current.photoGroups.map((group) => [group.id, group]),
+    ));
+  }
+
+  getPhotoGroup(photoGroupId, current = this.current) {
+    return current ? this.#photoGroupIndices.get(current)?.get(photoGroupId) ?? null : null;
+  }
+
+  #applyAnalysis(current, analyzedGroup) {
+    const indexed = this.#photoGroupIndices.get(current)?.get(analyzedGroup.id);
+    if (!indexed) return false;
+    // Preserve group identity for cached gallery queues and thumbnail handlers.
+    // Membership changes rebuild this index; stale moved IDs are never added.
+    Object.assign(indexed, analyzedGroup);
+    return true;
+  }
+
   async #withExclusiveOperation(operation, callback) {
     if (this.activeOperation) {
       throw new Error("正在打开目录、移动或恢复照片，请等待当前操作完成。");
@@ -353,6 +374,7 @@ export class ReviewWorkspace {
     await this.reviewStore.rememberDirectory?.(directory);
     throwIfAborted(analysisController.signal);
     this.current = current;
+    this.#indexPhotoGroups(current);
     current.analysisPromise = Promise.resolve(
       this.analyzer(scannedPhotoGroups, {
         signal: analysisController.signal,
@@ -370,10 +392,7 @@ export class ReviewWorkspace {
             this.current !== current
           )
             return;
-          current.photoGroups = current.photoGroups.map((group) =>
-            group.id === analyzedGroup.id ? analyzedGroup : group,
-          );
-          current.review = normalizeReview(current.review, current.photoGroups);
+          if (!this.#applyAnalysis(current, analyzedGroup)) return;
           onAnalysis?.({
             current,
             done,
@@ -390,13 +409,7 @@ export class ReviewWorkspace {
           this.current !== current
         )
           return current;
-        const analysisById = new Map(
-          analyzedPhotoGroups.map((group) => [group.id, group]),
-        );
-        current.photoGroups = current.photoGroups.map(
-          (group) => analysisById.get(group.id) ?? group,
-        );
-        current.review = normalizeReview(current.review, current.photoGroups);
+        for (const group of analyzedPhotoGroups) this.#applyAnalysis(current, group);
         onAnalysis?.({
           current,
           done: current.photoGroups.length,
@@ -527,6 +540,7 @@ export class ReviewWorkspace {
     current.photoGroups = current.photoGroups.filter(
       (group) => !wanted.has(group.id),
     );
+    this.#indexPhotoGroups(current);
     current.review = normalizeReview(
       current.review,
       current.photoGroups,
@@ -583,6 +597,7 @@ export class ReviewWorkspace {
     current.photoGroups = await this.analyzer(
       await scanPhotoGroups(current.directory),
     );
+    this.#indexPhotoGroups(current);
     current.review = normalizeReview(
       current.review,
       current.photoGroups,
@@ -651,6 +666,7 @@ export class ReviewWorkspace {
     current.photoGroups = await this.analyzer(
       await scanPhotoGroups(current.directory),
     );
+    this.#indexPhotoGroups(current);
     current.review = normalizeReview(
       current.review,
       current.photoGroups,

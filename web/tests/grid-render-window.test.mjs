@@ -51,3 +51,27 @@ test("GridRenderWindow resets its budget when the filtered photo group set chang
   });
 });
 
+test("stable analysis updates skip membership scans while new membership resets the window", () => {
+  let idReads = 0;
+  const allGroups = Array.from({ length: 1000 }, (_, index) => ({
+    get id() { idReads++; return `group:${index}`; },
+    analysis: { status: "pending" },
+  }));
+  const window = new GridRenderWindow({ batchSize: 2 });
+  window.update(allGroups);
+  assert.equal(idReads, 1000);
+  allGroups[0].analysis = { status: "review" };
+  window.revealNext();
+  const rendered = window.update(allGroups);
+  assert.equal(rendered.shown, 4);
+  assert.equal(rendered.groups[0].analysis.status, "review");
+  assert.equal(idReads, 1000);
+  window.update(allGroups.slice(1));
+  assert.equal(window.limit, 2);
+  assert.equal(idReads, 1999);
+  window.reset();
+  window.update(allGroups);
+  assert.equal(window.limit, 2);
+  assert.equal(idReads, 2999);
+});
+

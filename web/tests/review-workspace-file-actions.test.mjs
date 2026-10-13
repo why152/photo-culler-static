@@ -587,3 +587,41 @@ test("a worker failure arriving after restoration cannot overwrite operation fee
   assert.equal(current.analysisError, undefined);
   assert.deepEqual(events, []);
 });
+
+test("analysis indexes rebuild after membership changes and ignore moved IDs", async () => {
+  const source = new MemoryDirectoryHandle("source");
+  for (const name of ["ONE.JPG", "TWO.JPG", "THREE.JPG"]) source.addFile(name);
+  let callbacks;
+  let finish;
+  let calls = 0;
+  const events = [];
+  const workspace = new ReviewWorkspace({
+    batchNameFactory: () => "_PhotoCull_Review_index_membership",
+    analyzer: (groups, options) => {
+      calls += 1;
+      if (calls > 1) return Promise.resolve(groups);
+      callbacks = options;
+      return new Promise((resolve) => { finish = resolve; });
+    },
+  });
+  const current = await workspace.openDirectory(source, { onAnalysis: (event) => events.push(event) });
+  const retained = workspace.getPhotoGroup("photo-group:TWO");
+  const moved = await workspace.movePhotoGroups(["photo-group:ONE"]);
+  assert.equal(workspace.getPhotoGroup("photo-group:ONE"), null);
+  assert.equal(workspace.getPhotoGroup("photo-group:TWO"), retained);
+  callbacks.onResult({ id: "photo-group:ONE", analysis: { technicalScore: 1 } }, 1, 3);
+  assert.deepEqual(events, []);
+  callbacks.onResult({ id: "photo-group:TWO", analysis: { technicalScore: 82 } }, 2, 3);
+  assert.equal(retained.analysis.technicalScore, 82);
+  assert.equal(current.photoGroups.find(({ id }) => id === retained.id), retained);
+  finish([
+    { id: "photo-group:ONE", analysis: { technicalScore: 2 } },
+    { id: "photo-group:TWO", analysis: { technicalScore: 83 } },
+  ]);
+  await current.analysisPromise;
+  assert.equal(retained.analysis.technicalScore, 83);
+  assert.equal(current.photoGroups.length, 2);
+  await workspace.restoreMovedBatch(moved.id);
+  assert.equal(workspace.getPhotoGroup("photo-group:ONE")?.id, "photo-group:ONE");
+  assert.equal(workspace.getPhotoGroup("photo-group:TWO"), current.photoGroups.find(({ id }) => id === "photo-group:TWO"));
+});

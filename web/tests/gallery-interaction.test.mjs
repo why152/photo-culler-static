@@ -111,3 +111,81 @@ test("action selection supports individual and Shift range selection without cha
   interaction.clearActionSelection();
   assert.deepEqual(interaction.selectedPhotoGroupIds(), []);
 });
+
+test("large gallery navigation reuses one visible queue and constant-time ID positions", () => {
+  let decisionReads = 0;
+  let idReads = 0;
+  const groups = Array.from({ length: 5000 }, (_, index) => ({
+    get id() { idReads += 1; return `group:${index}`; },
+  }));
+  const decisions = new Proxy({}, {
+    get(target, key) { decisionReads += 1; return target[key]; },
+  });
+  const gallery = new GalleryInteraction({ photoGroups: groups, filter: "unreviewed", decisions });
+  const visible = gallery.visiblePhotoGroups();
+  const readsAfterIndexing = { idReads, decisionReads };
+  gallery.open("group:2000");
+  for (let index = 0; index < 200; index += 1) {
+    assert.equal(gallery.move(1).index, 2001);
+    assert.equal(gallery.move(-1).index, 2000);
+    assert.equal(gallery.viewerState().total, 5000);
+    assert.equal(gallery.visiblePhotoGroups(), visible);
+    assert.equal(gallery.photoGroup("group:4999"), groups[4999]);
+    assert.equal(gallery.visibleIndexOf("group:3000"), 3000);
+    gallery.update({ photoGroups: groups, decisions });
+  }
+  assert.equal(decisionReads, readsAfterIndexing.decisionReads);
+  // The only extra ID reads are the selected next group in each move.
+  assert.equal(idReads - readsAfterIndexing.idReads, 400);
+});
+
+test("in-place decisions invalidate membership and preserve viewer closure semantics", () => {
+  const groups = [photoGroup("one"), photoGroup("two"), photoGroup("three")];
+  const decisions = { one: "keep" };
+  const gallery = new GalleryInteraction({ photoGroups: groups, decisions, filter: "unreviewed" });
+  const visible = gallery.visiblePhotoGroups();
+  gallery.open("two", { focusId: "card:two", scrollY: 20 });
+  decisions.two = "reject";
+  gallery.invalidateDecisions();
+  assert.notEqual(gallery.visiblePhotoGroups(), visible);
+  assert.deepEqual(gallery.visiblePhotoGroups().map(({ id }) => id), ["three"]);
+  assert.deepEqual(gallery.update(), { focusId: "card:two", scrollY: 20 });
+  delete decisions.two;
+  gallery.update({ decisionsChanged: true });
+  assert.deepEqual(gallery.visiblePhotoGroups().map(({ id }) => id), ["two", "three"]);
+  gallery.update({ filter: "keep" });
+  assert.deepEqual(gallery.visiblePhotoGroups().map(({ id }) => id), ["one"]);
+});
+
+test("membership changes rebuild positions, prune removed selections, and keep directory ordering", () => {
+  const one = photoGroup("one");
+  const two = photoGroup("two");
+  const three = photoGroup("three");
+  const gallery = new GalleryInteraction({ photoGroups: [one, two, three] });
+  gallery.toggleSelection("three");
+  gallery.toggleSelection("one");
+  assert.deepEqual(gallery.selectedPhotoGroupIds(), ["one", "three"]);
+  gallery.open("one");
+  gallery.update({ photoGroups: [three, two] });
+  assert.equal(gallery.photoGroup("one"), null);
+  assert.equal(gallery.viewerState(), null);
+  assert.equal(gallery.selectionAnchorId, null);
+  assert.deepEqual(gallery.selectedPhotoGroupIds(), ["three"]);
+  assert.equal(gallery.visibleIndexOf("three"), 0);
+  gallery.open("three");
+  assert.equal(gallery.neighborPhotoGroup(1), two);
+  assert.equal(gallery.nextUnreviewedPhotoGroup(), two);
+  gallery.decisions.two = "keep";
+  gallery.invalidateDecisions();
+  assert.equal(gallery.nextUnreviewedPhotoGroup(), null);
+});
+
+test("cached queue and group lookup see analysis changes through stable object references", () => {
+  const group = photoGroup("one");
+  const gallery = new GalleryInteraction({ photoGroups: [group] });
+  const visible = gallery.visiblePhotoGroups();
+  Object.assign(group, { analysis: { technicalScore: 91 } });
+  assert.equal(gallery.visiblePhotoGroups(), visible);
+  assert.equal(visible[0].analysis.technicalScore, 91);
+  assert.equal(gallery.photoGroup("one"), group);
+});

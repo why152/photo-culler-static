@@ -440,3 +440,49 @@ test("superseded analysis failures never report errors against the active worksp
   assert.equal(oldCurrent.analysisError, undefined);
   assert.deepEqual(events, []);
 });
+
+test("per-group analysis updates preserve identities and avoid full-list or review scans", async () => {
+  const count = 2000;
+  const source = directoryHandle("large-source", Array.from({ length: count }, (_, index) => fileHandle(`${String(index).padStart(5, "0")}.JPG`)));
+  let options;
+  let finish;
+  const workspace = new ReviewWorkspace({ analyzer: (_groups, callbacks) => {
+    options = callbacks;
+    return new Promise((resolve) => { finish = resolve; });
+  } });
+  const events = [];
+  const current = await workspace.openDirectory(source, { onAnalysis: (event) => events.push(event) });
+  const array = current.photoGroups;
+  const review = current.review;
+  let idReads = 0;
+  const analyzed = array.map((group, index) => {
+    const id = group.id;
+    Object.defineProperty(group, "id", {
+      configurable: true,
+      get() { idReads += 1; return id; },
+      set(nextId) { assert.equal(nextId, id); },
+    });
+    return { id, analysis: { technicalScore: index } };
+  });
+  let reviewScans = 0;
+  review.decisions = new Proxy({}, {
+    ownKeys(target) { reviewScans += 1; return Reflect.ownKeys(target); },
+  });
+  const first = array[0];
+  for (const [index, result] of analyzed.entries()) options.onResult(result, index + 1, count);
+  assert.equal(current.photoGroups, array);
+  assert.equal(current.review, review);
+  assert.equal(workspace.getPhotoGroup(analyzed[0].id), first);
+  assert.equal(first.analysis.technicalScore, 0);
+  assert.equal(array.at(-1).analysis.technicalScore, count - 1);
+  assert.ok(idReads <= count * 2, `expected linear ID reads, got ${idReads}`);
+  assert.equal(reviewScans, 0);
+  options.onResult({ id: "photo-group:unknown", analysis: { technicalScore: -1 } }, count, count);
+  assert.equal(events.length, count);
+  assert.equal(workspace.getPhotoGroup("photo-group:unknown"), null);
+  finish(analyzed);
+  await current.analysisPromise;
+  assert.equal(current.photoGroups, array);
+  assert.equal(current.review, review);
+  assert.equal(reviewScans, 0);
+});

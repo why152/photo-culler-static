@@ -1,7 +1,7 @@
 import { BrowserPhotoAnalyzer } from "./modules/photo-analysis.js";
 import { BrowserReviewStore } from "./modules/browser-store.js";
 import { GalleryInteraction } from "./modules/gallery-interaction.js";
-import { GridRenderWindow } from "./modules/grid-render-window.js";
+import { PhotoGridView, FilmstripView } from "./modules/thumbnail-views.js";
 import { OperationFeedback } from "./modules/operation-feedback.js";
 import { ViewerZoom } from "./modules/viewer-zoom.js";
 import { ReviewDecisionHistory, ReviewSaveQueue } from "./modules/review-persistence.js";
@@ -75,11 +75,6 @@ const workspace = new ReviewWorkspace({
 });
 let state = null;
 let gallery = null;
-const gridRenderWindow = new GridRenderWindow({ batchSize: 160 });
-const gridItems = new Map();
-const filmstripItems = new Map();
-const gridPreviewUrls = [];
-const filmstripPreviewUrls = [];
 const movedPreviewUrlCache = new Map();
 const movedPreviewGroups = new Map();
 const movedPreviewImages = new Map();
@@ -98,22 +93,7 @@ reviewSaveStatus.hidden = true;
 elements["interaction-status"].after(reviewSaveStatus);
 let operationCompletionTimer = null;
 let interactionStatusTimer = null;
-let lastGridVisibleIds = null;
-let lastFilmstripVisibleIds = null;
 let lastMovedBatchesSignature = null;
-const gridContinuationObserver =
-  typeof IntersectionObserver === "function"
-    ? new IntersectionObserver(
-        (entries) => {
-          if (
-            entries.some((entry) => entry.isIntersecting) &&
-            gridRenderWindow.revealNext()
-          )
-            renderGrid();
-        },
-        { rootMargin: "480px 0px" },
-      )
-    : null;
 const decisionLabels = {
   pick: "精选",
   keep: "保留",
@@ -199,9 +179,6 @@ function failOperation(operation) {
   clearTimeout(operationCompletionTimer);
   renderOperationFeedback(operationFeedback.fail(operation));
 }
-function revokeUrls(urls) {
-  urls.splice(0).forEach(URL.revokeObjectURL);
-}
 function stopMovedPreviews() {
   movedPreviewGeneration += 1;
 }
@@ -215,32 +192,21 @@ function releaseViewerPreview() {
   viewerPreview = null;
 }
 function releaseFilmstripPreviews() {
-  revokeUrls(filmstripPreviewUrls);
-  filmstripItems.clear();
-  elements["viewer-filmstrip"].replaceChildren();
-  lastFilmstripVisibleIds = null;
+  filmstripView.clear();
 }
 function clearUrls() {
-  gridContinuationObserver?.disconnect();
-  gridRenderWindow.reset();
+  gridView.clear();
   stopMovedPreviews();
-  revokeUrls(gridPreviewUrls);
   releaseFilmstripPreviews();
   movedPreviewUrlCache.forEach((url) => URL.revokeObjectURL(url));
   movedPreviewUrlCache.clear();
   movedPreviewGroups.clear();
   movedPreviewImages.clear();
   releaseViewerPreview();
-  gridItems.clear();
-  lastGridVisibleIds = null;
   lastMovedBatchesSignature = null;
 }
 function currentGroup() {
-  const viewer = gallery?.viewerState();
-  return (
-    state?.photoGroups.find((group) => group.id === viewer?.photoGroupId) ??
-    null
-  );
+  return gallery?.photoGroup(gallery.viewer?.photoGroupId) ?? null;
 }
 function decisionFor(group) {
   return state?.review.decisions[group.id] ?? null;
@@ -249,24 +215,10 @@ function visibleGroups() {
   return gallery?.visiblePhotoGroups() ?? [];
 }
 function neighbor(direction) {
-  const visible = visibleGroups();
-  const index = visible.findIndex(
-    (group) => group.id === gallery?.viewerState()?.photoGroupId,
-  );
-  return index < 0 ? null : (visible[index + direction] ?? null);
+  return gallery?.neighborPhotoGroup(direction) ?? null;
 }
 function nextUnreviewed() {
-  if (!state) return null;
-  const group = currentGroup();
-  if (!group) return null;
-  const index = state.photoGroups.findIndex(
-    (photoGroup) => photoGroup.id === group.id,
-  );
-  return (
-    state.photoGroups
-      .slice(Math.max(0, index + 1))
-      .find((group) => !decisionFor(group)) ?? null
-  );
+  return gallery?.nextUnreviewedPhotoGroup() ?? null;
 }
 function reviewPayload() {
   return {
@@ -323,148 +275,37 @@ function restoreViewerReturn(returnTarget, fallback = activeFilterButton()) {
     (returnElement ?? fallback)?.focus({ preventScroll: true });
   });
 }
+const gridView = new PhotoGridView({
+  element: elements["photo-grid"],
+  visibleGroups,
+  context: () => ({
+    filter: state.filter,
+    density: state.density,
+    decisions: state.review.decisions,
+    actionSelection: gallery.actionSelection,
+  }),
+  filterLabels,
+  decisionLabels,
+  onOpen: (photoGroupId, focusId) => {
+    if (!gallery?.photoGroup(photoGroupId)) return;
+    gallery.open(photoGroupId, { focusId, scrollY: window.scrollY });
+    render();
+    requestAnimationFrame(() => elements["viewer-close"].focus());
+  },
+  onSelection: (photoGroupId, range) => {
+    gallery.toggleSelection(photoGroupId, { range });
+    render();
+  },
+});
+const filmstripView = new FilmstripView({
+  element: elements["viewer-filmstrip"],
+  onNavigate: (photoGroupId) => {
+    gallery.goTo(photoGroupId);
+    render();
+  },
+});
 function renderGrid() {
-  const visible = visibleGroups();
-  const renderWindow = gridRenderWindow.update(visible);
-  elements["photo-grid"].className = `photo-grid density-${state.density}`;
-  if (!visible.length) {
-    gridContinuationObserver?.disconnect();
-    const empty = document.createElement("p");
-    empty.className = "grid-empty";
-    empty.setAttribute("role", "status");
-    empty.textContent = `没有符合“${filterLabels[state.filter]}”筛选条件的 photo group。`;
-    elements["photo-grid"].replaceChildren(empty);
-    lastGridVisibleIds = null;
-    return;
-  }
-  const visibleIds = renderWindow.groups.map((group) => group.id);
-  const sameVisibleSet =
-    lastGridVisibleIds &&
-    visibleIds.length === lastGridVisibleIds.length &&
-    visibleIds.every((id, index) => id === lastGridVisibleIds[index]);
-  if (sameVisibleSet) renderWindow.groups.forEach(renderGridItem);
-  else {
-    gridContinuationObserver?.disconnect();
-    const children = renderWindow.groups.map(renderGridItem);
-    if (renderWindow.hasMore) {
-      const continuation = document.createElement("div");
-      continuation.id = "grid-continuation";
-      continuation.className = "grid-continuation";
-      const status = document.createElement("p");
-      status.textContent = `已显示 ${renderWindow.shown} / ${renderWindow.total}`;
-      const button = document.createElement("button");
-      button.id = "grid-load-more";
-      button.type = "button";
-      button.className = "secondary-action";
-      button.textContent = `继续显示 ${Math.min(
-        gridRenderWindow.batchSize,
-        renderWindow.total - renderWindow.shown,
-      )} 个`;
-      button.addEventListener("click", () => {
-        if (gridRenderWindow.revealNext()) renderGrid();
-      });
-      continuation.append(status, button);
-      children.push(continuation);
-    }
-    elements["photo-grid"].replaceChildren(...children);
-    const continuation = elements["photo-grid"].querySelector(
-      "#grid-continuation",
-    );
-    if (continuation) gridContinuationObserver?.observe(continuation);
-    lastGridVisibleIds = visibleIds;
-  }
-}
-function createPreview(group) {
-  if (!group.analysis.thumbnail) {
-    const preview = document.createElement("div");
-    preview.className = "photo-card-preview thumbnail-placeholder";
-    preview.setAttribute("aria-hidden", "true");
-    const shimmer = document.createElement("span");
-    shimmer.className = "thumbnail-placeholder-shimmer";
-    preview.append(shimmer);
-    return preview;
-  }
-  const preview = document.createElement("img");
-  preview.className = "photo-card-preview";
-  preview.loading = "lazy";
-  preview.decoding = "async";
-  const url = URL.createObjectURL(group.analysis.thumbnail);
-  gridPreviewUrls.push(url);
-  preview.src = url;
-  preview.alt = group.analysisFile.name;
-  return preview;
-}
-function renderGridItem(group) {
-  let item = gridItems.get(group.id);
-  if (!item) {
-    item = document.createElement("article");
-    item.dataset.photoGroupId = group.id;
-    const card = document.createElement("button");
-    card.type = "button";
-    card.id = `photo-card:${group.id}`;
-    card.className = "photo-card";
-    card.addEventListener("click", () => {
-      const photoGroup = state?.photoGroups.find(
-        ({ id }) => id === item.dataset.photoGroupId,
-      );
-      if (!photoGroup) return;
-      gallery.open(photoGroup.id, {
-        focusId: card.id,
-        scrollY: window.scrollY,
-      });
-      render();
-      requestAnimationFrame(() => elements["viewer-close"].focus());
-    });
-    const detail = document.createElement("div");
-    detail.className = "photo-card-detail";
-    const selection = document.createElement("button");
-    selection.type = "button";
-    selection.className = "selection-toggle";
-    selection.addEventListener("click", (event) => {
-      gallery.toggleSelection(item.dataset.photoGroupId, { range: event.shiftKey });
-      render();
-    });
-    item.append(card, selection);
-    card.append(detail);
-    gridItems.set(group.id, item);
-  }
-  const selected = gallery.actionSelection.has(group.id);
-  const card = item.querySelector(".photo-card");
-  const detail = item.querySelector(".photo-card-detail");
-  const selection = item.querySelector(".selection-toggle");
-  const pendingPreview = !group.analysis.thumbnail;
-  item.className = `photo-group-card${selected ? " action-selected" : ""}${state.filter === "reject" ? " reject-action-context" : ""}`;
-  card.className = `photo-card${pendingPreview ? " is-pending" : ""}`;
-  const preview = card.querySelector(".photo-card-preview");
-  if (!preview) card.insertBefore(createPreview(group), detail);
-  else if (
-    (pendingPreview && preview.tagName === "IMG") ||
-    (!pendingPreview && preview.tagName !== "IMG")
-  )
-    preview.replaceWith(createPreview(group));
-  const filename = document.createElement("strong");
-  filename.textContent = group.analysisFile.name;
-  const meta = document.createElement("small");
-  meta.className = pendingPreview
-    ? "analysis-pending"
-    : `analysis-${group.analysis.status}`;
-  meta.textContent = pendingPreview
-    ? "正在准备预览"
-    : `${group.analysis.status.toUpperCase()} · F ${Math.round(group.analysis.sharpness)}`;
-  const decision = decisionFor(group);
-  if (decision) {
-    const reviewDecision = document.createElement("small");
-    reviewDecision.className = `review-decision review-decision-${decision}`;
-    reviewDecision.textContent = decisionLabels[decision];
-    detail.replaceChildren(filename, meta, reviewDecision);
-  } else detail.replaceChildren(filename, meta);
-  selection.setAttribute(
-    "aria-label",
-    `${selected ? "取消选择" : "选择"} ${group.analysisFile.name}`,
-  );
-  selection.setAttribute("aria-pressed", String(selected));
-  selection.textContent = selected ? "✓" : "○";
-  return item;
+  gridView.render();
 }
 function renderViewer() {
   const viewer = gallery?.viewerState();
@@ -527,25 +368,7 @@ function renderViewer() {
   ])
     buttonSelected(button, decisionFor(group) === decision);
   elements["viewer-clear-decision"].disabled = !decisionFor(group);
-  const visible = gallery.visiblePhotoGroups();
-  const visibleIds = visible.map((photoGroup) => photoGroup.id);
-  const sameVisibleSet =
-    lastFilmstripVisibleIds &&
-    visibleIds.length === lastFilmstripVisibleIds.length &&
-    visibleIds.every((id, index) => id === lastFilmstripVisibleIds[index]);
-  if (sameVisibleSet) {
-    visible.forEach((photoGroup) =>
-      renderFilmstripItem(photoGroup, group.id),
-    );
-  } else {
-    elements["viewer-filmstrip"].replaceChildren(
-      ...visible.map((photoGroup) => renderFilmstripItem(photoGroup, group.id)),
-    );
-    lastFilmstripVisibleIds = visibleIds;
-  }
-  elements["viewer-filmstrip"]
-    .querySelector('[aria-current="true"]')
-    ?.scrollIntoView({ block: "nearest", inline: "center" });
+  filmstripView.render(gallery.visiblePhotoGroups(), group.id);
 }
 
 function viewerFramePoint(event) {
@@ -585,51 +408,6 @@ function updateViewerCopy(group) {
     `${group.analysis.status.toUpperCase()} · ${group.members.length} 个成员${group.hasRaw ? " · RAW" : ""}`;
   elements["viewer-name"].textContent = group.analysisFile.name;
   elements["viewer-reasons"].textContent = group.analysis.reasons.join("；");
-}
-function createFilmstripPreview(group) {
-  if (!group.analysis.thumbnail) {
-    const placeholder = document.createElement("span");
-    placeholder.className = "filmstrip-placeholder";
-    placeholder.setAttribute("aria-hidden", "true");
-    return placeholder;
-  }
-  const image = document.createElement("img");
-  image.className = "filmstrip-image";
-  image.loading = "lazy";
-  image.decoding = "async";
-  const url = URL.createObjectURL(group.analysis.thumbnail);
-  filmstripPreviewUrls.push(url);
-  image.src = url;
-  image.alt = "";
-  return image;
-}
-function renderFilmstripItem(group, currentPhotoGroupId) {
-  let thumbnail = filmstripItems.get(group.id);
-  if (!thumbnail) {
-    thumbnail = document.createElement("button");
-    thumbnail.type = "button";
-    thumbnail.dataset.photoGroupId = group.id;
-    thumbnail.addEventListener("click", () => {
-      gallery.goTo(thumbnail.dataset.photoGroupId);
-      render();
-    });
-    filmstripItems.set(group.id, thumbnail);
-  }
-  const pendingPreview = !group.analysis.thumbnail;
-  thumbnail.className = `viewer-thumbnail${group.id === currentPhotoGroupId ? " selected" : ""}${pendingPreview ? " is-pending" : ""}`;
-  thumbnail.setAttribute("aria-label", `查看 ${group.analysisFile.name}`);
-  thumbnail.setAttribute(
-    "aria-current",
-    String(group.id === currentPhotoGroupId),
-  );
-  const preview = thumbnail.firstElementChild;
-  if (!preview) thumbnail.append(createFilmstripPreview(group));
-  else if (
-    (pendingPreview && preview.tagName === "IMG") ||
-    (!pendingPreview && preview.tagName !== "IMG")
-  )
-    preview.replaceWith(createFilmstripPreview(group));
-  return thumbnail;
 }
 function renderMovedBatches() {
   const batches = state?.movedBatches ?? [];
@@ -916,11 +694,10 @@ async function openWorkspace(action, pendingPicker = null) {
         state.photoGroups = current.photoGroups;
         state.review = current.review;
         if (complete || error) {
+          filmstripView.invalidate();
           render();
         } else if (groupId) {
-          const group = state.photoGroups.find(
-            (candidate) => candidate.id === groupId,
-          );
+          const group = gallery.photoGroup(groupId);
           if (group) renderAnalysisResult(group);
         }
         if (!workspaceTransition) {
@@ -944,11 +721,11 @@ async function openWorkspace(action, pendingPicker = null) {
 }
 
 function renderAnalysisResult(group) {
-  if (gridItems.has(group.id)) renderGridItem(group);
+  if (gridView.has(group.id)) gridView.update(group);
   const viewer = gallery?.viewerState();
   if (!viewer) return;
-  if (filmstripItems.has(group.id))
-    renderFilmstripItem(group, viewer.photoGroupId);
+  if (filmstripView.has(group.id))
+    filmstripView.update(group, viewer.photoGroupId);
   if (viewer.photoGroupId === group.id) updateViewerCopy(group);
 }
 function decide(decision) {
@@ -956,7 +733,10 @@ function decide(decision) {
   const group = currentGroup();
   if (!group) return;
   const next = neighbor(1);
-  if (decisionHistory.record(state.review.decisions, group.id, decision)) persistReview();
+  if (decisionHistory.record(state.review.decisions, group.id, decision)) {
+    gallery.invalidateDecisions();
+    persistReview();
+  }
   if (next) gallery.goTo(next.id);
   const viewerReturnTarget = render();
   if (viewerReturnTarget)
@@ -965,6 +745,7 @@ function decide(decision) {
 function undoDecision() {
   if (workspaceTransition) return;
   if (!decisionHistory.undo(state.review.decisions)) return;
+  gallery.invalidateDecisions();
   persistReview();
   render();
 }
@@ -1296,7 +1077,7 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     const next = nextUnreviewed();
     if (!next) setInteractionStatus("没有下一个未筛的 photo group。");
-    else if (gallery.visiblePhotoGroups().some((group) => group.id === next.id))
+    else if (gallery.visibleIndexOf(next.id) >= 0)
       gallery.goTo(next.id);
     else
       setInteractionStatus("下一个未筛项不在当前筛选结果中；请先切换到“未筛”继续。");
