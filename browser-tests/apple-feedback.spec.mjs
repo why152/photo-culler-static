@@ -215,17 +215,17 @@ test("explicit recoverable move and restore report their own photo group progres
   await page.getByRole("button", { name: "移动已选项" }).click();
 
   const feedback = page.getByRole("status", { name: "操作进度", exact: true });
-  await expect(feedback).toContainText("正在移动 photo group");
+  await expect(feedback).toContainText("正在移动照片组");
   await expect(page.getByRole("status", { name: "文件操作进度" })).toContainText(
-    "正在移动 photo group",
+    "正在移动照片组",
   );
   await expect(feedback.getByRole("progressbar")).toHaveAttribute(
     "aria-valuemax",
     "2",
   );
-  await expect(feedback).toContainText("已移动到可恢复 review batch");
+  await expect(feedback).toContainText("已移动到可恢复批次");
   await expect(page.getByRole("status", { name: "文件操作进度" })).toContainText(
-    "已移动到可恢复 review batch",
+    "已移动到可恢复批次",
   );
   await expect(feedback.getByRole("progressbar")).toHaveAttribute(
     "aria-valuenow",
@@ -235,12 +235,12 @@ test("explicit recoverable move and restore report their own photo group progres
 
   await page.getByRole("button", { name: "已移动 1" }).click();
   await page.getByRole("button", { name: "恢复整批" }).click();
-  await expect(feedback).toContainText("正在恢复 review batch");
+  await expect(feedback).toContainText("正在恢复 可恢复批次");
   await expect(feedback.getByRole("progressbar")).toHaveAttribute(
     "aria-valuemax",
     "2",
   );
-  await expect(feedback).toContainText("已恢复 review batch");
+  await expect(feedback).toContainText("已恢复 可恢复批次");
   await expect(feedback.getByRole("progressbar")).toHaveAttribute(
     "aria-valuenow",
     "2",

@@ -1,77 +1,76 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { GridRenderWindow } from "../modules/grid-render-window.js";
 
-function groups(count, prefix = "photo-group") {
-  return Array.from({ length: count }, (_, index) => ({
-    id: `${prefix}:${index + 1}`,
-  }));
+function groups(count) {
+  return Array.from({ length: count }, (_, index) => ({ id: `group:${index}` }));
 }
 
-test("GridRenderWindow bounds the first DOM batch and reveals every group in stable chunks", () => {
+test("large grid windows stay bounded and cover first, middle, and final rows", () => {
   const window = new GridRenderWindow({ batchSize: 160 });
-  const allGroups = groups(800);
-
-  assert.deepEqual(window.update(allGroups), {
-    groups: allGroups.slice(0, 160),
-    shown: 160,
-    total: 800,
-    hasMore: true,
-  });
-  assert.equal(window.revealNext(), true);
-  assert.deepEqual(window.update(allGroups), {
-    groups: allGroups.slice(0, 320),
-    shown: 320,
-    total: 800,
-    hasMore: true,
-  });
-
-  while (window.revealNext());
-  assert.deepEqual(window.update(allGroups), {
-    groups: allGroups,
-    shown: 800,
-    total: 800,
-    hasMore: false,
-  });
+  const all = groups(2000);
+  const viewport = { columns: 5, rowHeight: 220, viewportHeight: 800 };
+  const first = window.update(all, viewport);
+  assert.equal(first.start, 0);
+  assert.equal(first.topOffset, 0);
+  assert.equal(first.virtual, true);
+  assert.ok(first.groups.length <= 160);
+  const middle = window.update(all, { ...viewport, scrollTop: 44000 });
+  assert.ok(middle.start > 0);
+  assert.ok(middle.start <= 1000 && middle.end > 1000);
+  assert.ok(middle.groups.length <= 160);
+  assert.equal(middle.start % 5, 0);
+  assert.equal(middle.topOffset / 220, middle.start / 5);
+  const last = window.update(all, { ...viewport, scrollTop: 200000 });
+  assert.equal(last.end, 2000);
+  assert.equal(last.bottomOffset, 0);
+  assert.ok(last.groups.length <= 160);
+  assert.equal(last.groups.at(-1), all.at(-1));
 });
 
-test("GridRenderWindow resets its budget when the filtered photo group set changes", () => {
-  const window = new GridRenderWindow({ batchSize: 2 });
-  const allGroups = groups(5);
-  window.update(allGroups);
-  window.revealNext();
-
-  const filtered = [allGroups[1], allGroups[3], allGroups[4]];
-  assert.deepEqual(window.update(filtered), {
-    groups: filtered.slice(0, 2),
-    shown: 2,
-    total: 3,
-    hasMore: true,
-  });
+test("small directories retain the full queue and membership/density changes recalculate spacers", () => {
+  const window = new GridRenderWindow({ batchSize: 160 });
+  const small = groups(160);
+  const rendered = window.update(small, { scrollTop: 50000 });
+  assert.equal(rendered.groups, small);
+  assert.equal(rendered.virtual, false);
+  assert.equal(rendered.topOffset, 0);
+  assert.equal(rendered.bottomOffset, 0);
+  const large = groups(1000);
+  const compact = window.update(large, { columns: 6, rowHeight: 200, viewportHeight: 600, scrollTop: 10000 });
+  const comfortable = window.update(large, { columns: 3, rowHeight: 300, viewportHeight: 600, scrollTop: 10000 });
+  assert.equal(compact.start % 6, 0);
+  assert.equal(comfortable.start % 3, 0);
+  assert.notEqual(compact.start, comfortable.start);
+  const filtered = large.slice(0, 30);
+  assert.equal(window.update(filtered).groups, filtered);
 });
 
-test("stable analysis updates skip membership scans while new membership resets the window", () => {
-  let idReads = 0;
-  const allGroups = Array.from({ length: 1000 }, (_, index) => ({
-    get id() { idReads++; return `group:${index}`; },
+test("stable analysis results require no full membership/ID scans", () => {
+  let reads = 0;
+  const all = Array.from({ length: 2000 }, (_, index) => ({
+    get id() { reads += 1; return `group:${index}`; },
     analysis: { status: "pending" },
   }));
-  const window = new GridRenderWindow({ batchSize: 2 });
-  window.update(allGroups);
-  assert.equal(idReads, 1000);
-  allGroups[0].analysis = { status: "review" };
-  window.revealNext();
-  const rendered = window.update(allGroups);
-  assert.equal(rendered.shown, 4);
-  assert.equal(rendered.groups[0].analysis.status, "review");
-  assert.equal(idReads, 1000);
-  window.update(allGroups.slice(1));
-  assert.equal(window.limit, 2);
-  assert.equal(idReads, 1999);
+  const window = new GridRenderWindow();
+  for (let index = 0; index < 500; index++) {
+    window.update(all, { columns: 5, rowHeight: 200, viewportHeight: 800, scrollTop: index * 200 });
+  }
+  assert.equal(reads, 0);
+  all[0].analysis.status = "keep";
+  assert.equal(window.update(all).groups[0].analysis.status, "keep");
   window.reset();
-  window.update(allGroups);
-  assert.equal(window.limit, 2);
-  assert.equal(idReads, 2999);
+  assert.equal(window.start, 0);
 });
 
+test("responsive reflow preserves queue anchors instead of stale absolute pixels", async () => {
+  const { reflowScrollOffset } = await import("../modules/grid-render-window.js");
+  const wide = { columns: 4, rowHeight: 240 };
+  const narrow = { columns: 2, rowHeight: 350 };
+  // Wide row 84 shows group 336 at a quarter-row offset. Narrow geometry
+  // must still show group 336, rather than jump back to the middle of a queue.
+  const next = reflowScrollOffset(84.25 * wide.rowHeight, wide, narrow, 360);
+  assert.equal(next, 168.25 * narrow.rowHeight);
+  assert.equal(reflowScrollOffset(next, narrow, wide, 360), 84.25 * wide.rowHeight);
+  assert.equal(reflowScrollOffset(0, wide, narrow, 360), 0);
+});

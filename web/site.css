@@ -1175,3 +1175,40 @@ kbd {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Fixed virtual row geometry keeps spacers exact as decisions and analysis
+   arrive; small directories retain their natural card layout. */
+.photo-grid.is-virtual .photo-group-card {
+  height: var(--virtual-card-height);
+  content-visibility: visible;
+}
+.photo-grid.is-virtual .photo-card-detail {
+  height: 62px;
+  box-sizing: border-box;
+}
+.grid-virtual-spacer {
+  grid-column: 1 / -1;
+  pointer-events: none;
+}
+.filmstrip-virtual-spacer {
+  flex: 0 0 auto;
+  height: 1px;
+  pointer-events: none;
+}
+.viewer-filmstrip { --filmstrip-item-width: 58px; }
+@media (max-width: 800px) {
+  .viewer-filmstrip { --filmstrip-item-width: 51px; }
+}
+.photo-grid.is-virtual,
+.grid-virtual-spacer,
+.filmstrip-virtual-spacer {
+  overflow-anchor: none;
+}
+.photo-card .thumbnail-placeholder { padding: 0; }
+
+/* Review position and virtualized ranges own scroll restoration. Browser anchor
+   compensation for transient feedback above the grid would corrupt that saved
+   position when analysis completes or the feedback disappears. */
+html {
+  overflow-anchor: none;
+}

@@ -1,55 +1,62 @@
+import { AnalysisTiming } from "./analysis-timing.js";
+import { imageDimensions, dimensionsWithin, orientedDimensions } from "./image-dimensions.js";
+
 const ANALYSIS_LONG_EDGE = 1600;
 const THUMBNAIL_EDGE = 420;
-const RESIZE_DECODE_THRESHOLD_BYTES = 1_000_000;
-
-async function decodeBitmap(file) {
-  if (file.size > RESIZE_DECODE_THRESHOLD_BYTES) {
-    try {
-      return await createImageBitmap(file, {
-        imageOrientation: "from-image",
-        resizeWidth: ANALYSIS_LONG_EDGE,
-        resizeQuality: "high",
-      });
-    } catch {
-      // Fall back to a full-resolution decode below.
+export async function decodeBitmap(file, timing = new AnalysisTiming()) {
+  const metadata = await timing.measureAsync("metadata", () => imageDimensions(file));
+  if (metadata) {
+    const dimensions = orientedDimensions(metadata);
+    const target = dimensionsWithin(ANALYSIS_LONG_EDGE, dimensions.width, dimensions.height);
+    if (target.width !== dimensions.width || target.height !== dimensions.height) {
+      try {
+        return await timing.measureAsync("decode", () => createImageBitmap(file, { imageOrientation: "from-image",
+          resizeWidth: target.width, resizeHeight: target.height, resizeQuality: "high" }));
+      } catch {
+        // Some decoders reject native resizing. Only then retry ordinary decode.
+      }
     }
   }
-  return createImageBitmap(file, { imageOrientation: "from-image" });
+  return timing.measureAsync("decode", () => createImageBitmap(file, { imageOrientation: "from-image" }));
 }
 
-function dimensionsWithin(longEdge, width, height) {
-  if (Math.max(width, height) <= longEdge) return { width, height };
-  const scale = longEdge / Math.max(width, height);
-  return {
-    width: Math.max(1, Math.round(width * scale)),
-    height: Math.max(1, Math.round(height * scale)),
-  };
-}
-
-function regionVariance(gray, width, startX, startY, endX, endY) {
-  let count = 0;
-  let mean = 0;
-  let squaredDeviation = 0;
-  for (
-    let y = Math.max(1, startY);
-    y < Math.min(endY, gray.length / width - 1);
-    y += 1
-  ) {
-    for (let x = Math.max(1, startX); x < Math.min(endX, width - 1); x += 1) {
-      const point = y * width + x;
-      const laplacian =
-        -4 * gray[point] +
-        gray[point - 1] +
-        gray[point + 1] +
-        gray[point - width] +
-        gray[point + width];
-      count += 1;
-      const delta = laplacian - mean;
-      mean += delta / count;
-      squaredDeviation += delta * (laplacian - mean);
+function laplacianVariances(gray, width, height) {
+  let count = 0, mean = 0, squaredDeviation = 0;
+  const counts = new Uint32Array(9);
+  const means = new Float64Array(9);
+  const deviations = new Float64Array(9);
+  const starts = [1, Math.max(1, Math.floor(width / 3)), Math.max(1, Math.floor(2 * width / 3))];
+  const ends = [Math.min(width - 1, Math.floor(width / 3)), Math.min(width - 1, Math.floor(2 * width / 3)), width - 1];
+  const top = Math.floor(height / 3), bottom = Math.floor(2 * height / 3);
+  for (let y = 1; y < height - 1; y++) {
+    const regionRow = y < top ? 0 : y < bottom ? 3 : 6;
+    const row = y * width;
+    for (let column = 0; column < 3; column++) {
+      const region = regionRow + column;
+      let localCount = counts[region], localMean = means[region], localDeviation = deviations[region];
+      for (let x = starts[column]; x < ends[column]; x++) {
+        const point = row + x;
+        const laplacian = -4 * gray[point] + gray[point - 1] + gray[point + 1]
+          + gray[point - width] + gray[point + width];
+        count++;
+        const delta = laplacian - mean;
+        mean += delta / count;
+        squaredDeviation += delta * (laplacian - mean);
+        localCount++;
+        const localDelta = laplacian - localMean;
+        localMean += localDelta / localCount;
+        localDeviation += localDelta * (laplacian - localMean);
+      }
+      counts[region] = localCount;
+      means[region] = localMean;
+      deviations[region] = localDeviation;
     }
   }
-  return count > 1 ? squaredDeviation / count : 0;
+  let localVariance = 0;
+  for (let region = 0; region < 9; region++) {
+    if (counts[region] > 1) localVariance = Math.max(localVariance, deviations[region] / counts[region]);
+  }
+  return { globalVariance: count > 1 ? squaredDeviation / count : 0, localVariance };
 }
 
 export function scorePixels(imageData, width, height) {
@@ -67,23 +74,11 @@ export function scorePixels(imageData, width, height) {
     if (value <= 8) darkCount += 1;
     if (value >= 247) brightCount += 1;
   }
-  const globalVariance = regionVariance(gray, width, 0, 0, width, height);
-  let localVariance = 0;
-  for (let row = 0; row < 3; row += 1) {
-    for (let column = 0; column < 3; column += 1) {
-      localVariance = Math.max(
-        localVariance,
-        regionVariance(
-          gray,
-          width,
-          Math.floor((column * width) / 3),
-          Math.floor((row * height) / 3),
-          Math.floor(((column + 1) * width) / 3),
-          Math.floor(((row + 1) * height) / 3),
-        ),
-      );
-    }
-  }
+  const { globalVariance, localVariance } = laplacianVariances(gray, width, height);
+  return scoreStatistics(globalVariance, localVariance, darkCount, brightCount, gray.length);
+}
+
+export function scoreStatistics(globalVariance, localVariance, darkCount, brightCount, pixelCount) {
   const sharpness =
     Math.round(
       Math.min(
@@ -98,15 +93,15 @@ export function scorePixels(imageData, width, height) {
     Math.round(
       Math.max(
         0,
-        100 - (Math.max(darkCount, brightCount) / gray.length) * 100,
+        100 - (Math.max(darkCount, brightCount) / pixelCount) * 100,
       ) * 10,
     ) / 10;
   const technicalScore =
     Math.round((sharpness * 0.8 + exposureScore * 0.2) * 10) / 10;
   const reasons = [];
-  if (darkCount / gray.length > 0.96)
+  if (darkCount / pixelCount > 0.96)
     reasons.push("画面几乎全黑，建议确认是否为误拍");
-  if (brightCount / gray.length > 0.96)
+  if (brightCount / pixelCount > 0.96)
     reasons.push("画面几乎全白，建议确认是否为误拍");
   let status = "keep";
   if (reasons.length) status = "review";
@@ -120,10 +115,10 @@ export function scorePixels(imageData, width, height) {
   return { status, sharpness, exposureScore, technicalScore, reasons };
 }
 
-async function analyzeFile(file) {
+export async function analyzeFile(file, timing = new AnalysisTiming(), onPreview) {
   let bitmap;
   try {
-    bitmap = await decodeBitmap(file);
+    bitmap = await decodeBitmap(file, timing);
     const analysisSize = dimensionsWithin(
       ANALYSIS_LONG_EDGE,
       bitmap.width,
@@ -136,23 +131,13 @@ async function analyzeFile(file) {
     const analysisContext = analysisCanvas.getContext("2d", {
       willReadFrequently: true,
     });
-    analysisContext.drawImage(
+    timing.measure("resize", () => analysisContext.drawImage(
       bitmap,
       0,
       0,
       analysisSize.width,
       analysisSize.height,
-    );
-    const result = scorePixels(
-      analysisContext.getImageData(
-        0,
-        0,
-        analysisSize.width,
-        analysisSize.height,
-      ).data,
-      analysisSize.width,
-      analysisSize.height,
-    );
+    ));
     const thumbnailSize = dimensionsWithin(
       THUMBNAIL_EDGE,
       bitmap.width,
@@ -162,16 +147,22 @@ async function analyzeFile(file) {
       thumbnailSize.width,
       thumbnailSize.height,
     );
-    thumbnailCanvas
+    timing.measure("thumbnailResize", () => thumbnailCanvas
       .getContext("2d")
-      .drawImage(bitmap, 0, 0, thumbnailSize.width, thumbnailSize.height);
-    return {
-      ...result,
-      thumbnail: await thumbnailCanvas.convertToBlob({
-        type: "image/jpeg",
-        quality: 0.84,
-      }),
-    };
+      .drawImage(bitmap, 0, 0, thumbnailSize.width, thumbnailSize.height));
+    const thumbnail = await timing.measureAsync("thumbnailEncode", () => thumbnailCanvas.convertToBlob({
+      type: "image/jpeg", quality: 0.84,
+    }));
+    onPreview?.(thumbnail);
+    const pixels = timing.measure("readback", () => analysisContext.getImageData(
+        0,
+        0,
+        analysisSize.width,
+        analysisSize.height,
+      ).data);
+    const result = timing.measure("score", () => scorePixels(pixels,
+      analysisSize.width, analysisSize.height));
+    return { ...result, thumbnail };
   } catch (error) {
     return {
       status: "review",
@@ -186,11 +177,16 @@ async function analyzeFile(file) {
   }
 }
 
-if (typeof self !== "undefined") {
+if (typeof DedicatedWorkerGlobalScope !== "undefined" && self instanceof DedicatedWorkerGlobalScope) {
   self.addEventListener("message", async (event) => {
+    const timing = new AnalysisTiming(Boolean(event.data.diagnostics));
+    const result = await analyzeFile(event.data.file, timing, event.data.preview ? (thumbnail) => {
+      self.postMessage({ id: event.data.id, type: "preview", thumbnail });
+    } : undefined);
     self.postMessage({
       id: event.data.id,
-      result: await analyzeFile(event.data.file),
+      result,
+      timings: timing.finish(),
     });
   });
 }

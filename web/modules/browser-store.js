@@ -1,13 +1,32 @@
+import { PHOTO_ANALYSIS_VERSION } from "./photo-analysis-version.js";
+
 const DATABASE_NAME = "photo-culler-local";
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 3;
 const WORKSPACE_STORE = "workspace";
 const ANALYSIS_STORE = "analysis";
+const DIRECTORY_IDENTITIES_STORE = "directory-identities";
+const SCOPED_ANALYSIS_CACHE_VERSION = 2;
+const identityQueues = new Map();
 const ANALYSIS_CACHED_AT_INDEX = "cached-at";
 const DEFAULT_ANALYSIS_CACHE_LIMIT = 2_000;
 const LAST_DIRECTORY_KEY = "last-directory";
 
-function fileKey(file) {
-  return `${file.name}:${file.size}:${file.lastModified}`;
+function fileKey(directoryId, algorithmVersion, file) {
+  return JSON.stringify([directoryId, algorithmVersion, file.name, file.size, file.lastModified]);
+}
+
+function serializeIdentity(databaseName, callback) {
+  const previous = identityQueues.get(databaseName) ?? Promise.resolve();
+  const result = previous.catch(() => {}).then(() => {
+    if (globalThis.navigator?.locks?.request)
+      return navigator.locks.request(`photo-culler-cache-identity:${databaseName}`, callback);
+    return callback();
+  });
+  identityQueues.set(databaseName, result);
+  void result.finally(() => {
+    if (identityQueues.get(databaseName) === result) identityQueues.delete(databaseName);
+  }).catch(() => {});
+  return result;
 }
 
 function requestAsPromise(request) {
@@ -42,7 +61,9 @@ function transactionDone(transaction) {
 
 function isAnalysisCacheRecord(value) {
   return (
-    value?.cacheVersion === 1 &&
+    value?.cacheVersion === SCOPED_ANALYSIS_CACHE_VERSION &&
+    typeof value.directoryId === "string" &&
+    typeof value.algorithmVersion === "string" &&
     Number.isFinite(value.cachedAt) &&
     Object.hasOwn(value, "analysis")
   );
@@ -51,19 +72,9 @@ function isAnalysisCacheRecord(value) {
 function migrateAnalysisStore(store) {
   if (!store.indexNames.contains(ANALYSIS_CACHED_AT_INDEX))
     store.createIndex(ANALYSIS_CACHED_AT_INDEX, "cachedAt");
-  let legacyCachedAt = 0;
-  const request = store.openCursor();
-  request.addEventListener("success", () => {
-    const cursor = request.result;
-    if (!cursor) return;
-    if (!isAnalysisCacheRecord(cursor.value))
-      cursor.update({
-        cacheVersion: 1,
-        cachedAt: legacyCachedAt++,
-        analysis: cursor.value,
-      });
-    cursor.continue();
-  });
+  // Old entries have no trustworthy directory identity or algorithm version.
+  // Recompute only analysis; workspace decisions and directory handles survive.
+  store.clear();
 }
 
 function deleteOldestAnalysisRecords(store, count) {
@@ -100,6 +111,9 @@ export class BrowserReviewStore {
       throw new Error("图像分析缓存上限必须是正整数。");
     this.analysisCacheLimit = analysisCacheLimit;
     this.lastCachedAt = 0;
+    this.databaseName = databaseName;
+    this.directoryIds = new WeakMap();
+    this.directoryIdentityLimit = analysisCacheLimit + 32;
     this.database = new Promise((resolve, reject) => {
       const request = indexedDB.open(databaseName, DATABASE_VERSION);
       request.addEventListener("upgradeneeded", () => {
@@ -110,6 +124,8 @@ export class BrowserReviewStore {
           ? request.transaction.objectStore(ANALYSIS_STORE)
           : database.createObjectStore(ANALYSIS_STORE);
         migrateAnalysisStore(analysisStore);
+        if (!database.objectStoreNames.contains(DIRECTORY_IDENTITIES_STORE))
+          database.createObjectStore(DIRECTORY_IDENTITIES_STORE);
       });
       request.addEventListener(
         "success",
@@ -191,12 +207,93 @@ export class BrowserReviewStore {
     });
   }
 
-  async loadAnalysis(file) {
-    const cached = await this.read(ANALYSIS_STORE, fileKey(file));
-    return isAnalysisCacheRecord(cached) ? cached.analysis : cached;
+  async #directoryId(directory) {
+    if (directory?.kind !== "directory" || typeof directory.isSameEntry !== "function")
+      throw new Error("图像分析缓存需要有效的照片文件夹身份。");
+    let identity = this.directoryIds.get(directory);
+    if (!identity) {
+      identity = serializeIdentity(this.databaseName, async () => {
+        const database = await this.database;
+        const transaction = database.transaction(DIRECTORY_IDENTITIES_STORE, "readonly");
+        const done = transactionDone(transaction);
+        const entries = await requestAsPromise(transaction.objectStore(DIRECTORY_IDENTITIES_STORE).getAll());
+        await done;
+        // isSameEntry may await browser IPC: never keep an IDB transaction open.
+        for (const entry of entries) {
+          try {
+            if (await entry.directory.isSameEntry(directory)) return entry.id;
+          } catch (error) {
+            if (error?.name !== "NotFoundError") throw error;
+            const removal = database.transaction(DIRECTORY_IDENTITIES_STORE, "readwrite");
+            const removed = transactionDone(removal);
+            removal.objectStore(DIRECTORY_IDENTITIES_STORE).delete(entry.id);
+            await removed;
+          }
+        }
+        const id = crypto.randomUUID();
+        const identity = { id, directory, createdAt: Date.now() };
+        await this.write(DIRECTORY_IDENTITIES_STORE, id, identity);
+        if (entries.length >= this.directoryIdentityLimit)
+          await this.#pruneDirectoryIdentities(id);
+        return id;
+      });
+      this.directoryIds.set(directory, identity);
+      void identity.catch(() => {
+        if (this.directoryIds.get(directory) === identity) this.directoryIds.delete(directory);
+      });
+    }
+    return identity;
   }
 
-  async saveAnalysis(file, analysis) {
+  async #pruneDirectoryIdentities(retainedId) {
+    const database = await this.database;
+    const transaction = database.transaction([DIRECTORY_IDENTITIES_STORE, ANALYSIS_STORE], "readwrite");
+    const done = transactionDone(transaction);
+    const identities = transaction.objectStore(DIRECTORY_IDENTITIES_STORE);
+    const entriesRequest = requestAsPromise(identities.getAll());
+    const keysRequest = requestAsPromise(transaction.objectStore(ANALYSIS_STORE).getAllKeys());
+    const [entries, keys] = await Promise.all([entriesRequest, keysRequest]);
+    const cachedIds = new Set(keys.map((key) => JSON.parse(key)[0]));
+    let excess = entries.length - this.directoryIdentityLimit;
+    for (const entry of entries.sort((left, right) => (left.createdAt ?? 0) - (right.createdAt ?? 0))) {
+      if (excess <= 0) break;
+      // Keep every cached namespace and the scope being resolved. Pruning an
+      // old orphan only causes a cache miss if that directory is opened again.
+      if (entry.id === retainedId || cachedIds.has(entry.id)) continue;
+      identities.delete(entry.id);
+      excess -= 1;
+    }
+    await done;
+  }
+
+  async analysisScope(directory, { algorithmVersion = PHOTO_ANALYSIS_VERSION } = {}) {
+    if (typeof algorithmVersion !== "string" || !algorithmVersion)
+      throw new Error("图像分析缓存需要有效的算法版本。");
+    const directoryId = await this.#directoryId(directory);
+    return {
+      loadAnalysis: (file) => this.#loadScopedAnalysis(file, directoryId, algorithmVersion),
+      saveAnalysis: (file, analysis) => this.#saveScopedAnalysis(file, analysis, directoryId, algorithmVersion),
+    };
+  }
+
+  // Unscoped callers cannot prove a file belongs to the cached directory.
+  async loadAnalysis(file, { directory, algorithmVersion } = {}) {
+    if (!directory) return null;
+    return (await this.analysisScope(directory, { algorithmVersion })).loadAnalysis(file);
+  }
+
+  async saveAnalysis(file, analysis, { directory, algorithmVersion } = {}) {
+    if (!directory) return;
+    return (await this.analysisScope(directory, { algorithmVersion })).saveAnalysis(file, analysis);
+  }
+
+  async #loadScopedAnalysis(file, directoryId, algorithmVersion) {
+    const cached = await this.read(ANALYSIS_STORE, fileKey(directoryId, algorithmVersion, file));
+    return isAnalysisCacheRecord(cached) && cached.directoryId === directoryId &&
+      cached.algorithmVersion === algorithmVersion ? cached.analysis : null;
+  }
+
+  async #saveScopedAnalysis(file, analysis, directoryId, algorithmVersion) {
     const database = await this.database;
     const transaction = database.transaction(ANALYSIS_STORE, "readwrite");
     const done = transactionDone(transaction);
@@ -204,17 +301,16 @@ export class BrowserReviewStore {
     this.lastCachedAt = Math.max(Date.now(), this.lastCachedAt + 1);
     store.put(
       {
-        cacheVersion: 1,
+        cacheVersion: SCOPED_ANALYSIS_CACHE_VERSION,
+        directoryId,
+        algorithmVersion,
         cachedAt: this.lastCachedAt,
         analysis,
       },
-      fileKey(file),
+      fileKey(directoryId, algorithmVersion, file),
     );
     const count = await requestAsPromise(store.count());
-    await deleteOldestAnalysisRecords(
-      store,
-      count - this.analysisCacheLimit,
-    );
+    await deleteOldestAnalysisRecords(store, count - this.analysisCacheLimit);
     await done;
   }
 

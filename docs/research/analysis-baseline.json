@@ -1,0 +1,223 @@
+{
+  "generatedAt": "2026-10-13T14:54:06.395Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+  "fixtures": [
+    {
+      "label": "24MP-landscape-jpeg",
+      "width": 6000,
+      "height": 4000,
+      "type": "image/jpeg",
+      "bytes": 20846113,
+      "runs": [
+        {
+          "cacheState": "cold",
+          "firstResult": 200.90000000596046,
+          "elapsed": 200.90000000596046,
+          "diagnostic": {
+            "cacheHit": false,
+            "stages": {
+              "decode": 169.59999999403954,
+              "resize": 0.7000000178813934,
+              "readback": 2.2999999821186066,
+              "score": 18.600000023841858,
+              "thumbnailResize": 0.09999999403953552,
+              "thumbnailEncode": 5.699999988079071,
+              "total": 200.69999998807907,
+              "cacheRead": 2.199999988079071,
+              "cacheWrite": 0.5999999940395355,
+              "workerTotal": 197.59999999403954
+            }
+          },
+          "scores": {
+            "status": "keep",
+            "sharpness": 100,
+            "exposureScore": 100,
+            "technicalScore": 100
+          }
+        },
+        {
+          "cacheState": "warm",
+          "firstResult": 0.20000001788139343,
+          "elapsed": 0.20000001788139343,
+          "diagnostic": {
+            "cacheHit": true,
+            "stages": {
+              "cacheRead": 0.20000001788139343,
+              "total": 0.20000001788139343,
+              "workerTotal": null
+            }
+          },
+          "scores": {
+            "status": "keep",
+            "sharpness": 100,
+            "exposureScore": 100,
+            "technicalScore": 100
+          }
+        }
+      ]
+    },
+    {
+      "label": "24MP-portrait-jpeg",
+      "width": 4000,
+      "height": 6000,
+      "type": "image/jpeg",
+      "bytes": 20846342,
+      "runs": [
+        {
+          "cacheState": "cold",
+          "firstResult": 218.19999998807907,
+          "elapsed": 218.19999998807907,
+          "diagnostic": {
+            "cacheHit": false,
+            "stages": {
+              "decode": 187.69999998807907,
+              "resize": 0.5999999940395355,
+              "readback": 6,
+              "score": 16.600000023841858,
+              "thumbnailResize": 0.09999999403953552,
+              "thumbnailEncode": 6.0999999940395355,
+              "total": 218.19999998807907,
+              "cacheRead": 0.30000001192092896,
+              "cacheWrite": 0.19999998807907104,
+              "workerTotal": 217.5
+            }
+          },
+          "scores": {
+            "status": "keep",
+            "sharpness": 100,
+            "exposureScore": 100,
+            "technicalScore": 100
+          }
+        },
+        {
+          "cacheState": "warm",
+          "firstResult": 0.20000001788139343,
+          "elapsed": 0.20000001788139343,
+          "diagnostic": {
+            "cacheHit": true,
+            "stages": {
+              "cacheRead": 0.20000001788139343,
+              "total": 0.20000001788139343,
+              "workerTotal": null
+            }
+          },
+          "scores": {
+            "status": "keep",
+            "sharpness": 100,
+            "exposureScore": 100,
+            "technicalScore": 100
+          }
+        }
+      ]
+    },
+    {
+      "label": "24MP-landscape-png",
+      "width": 6000,
+      "height": 4000,
+      "type": "image/png",
+      "bytes": 3925392,
+      "runs": [
+        {
+          "cacheState": "cold",
+          "firstResult": 85.90000000596046,
+          "elapsed": 85.90000000596046,
+          "diagnostic": {
+            "cacheHit": false,
+            "stages": {
+              "decode": 54.900000005960464,
+              "resize": 0.4000000059604645,
+              "readback": 1.899999976158142,
+              "score": 16.400000005960464,
+              "thumbnailResize": 0.09999999403953552,
+              "thumbnailEncode": 11.300000011920929,
+              "total": 85.90000000596046,
+              "cacheRead": 0.20000001788139343,
+              "cacheWrite": 0.29999998211860657,
+              "workerTotal": 85.19999998807907
+            }
+          },
+          "scores": {
+            "status": "keep",
+            "sharpness": 100,
+            "exposureScore": 100,
+            "technicalScore": 100
+          }
+        },
+        {
+          "cacheState": "warm",
+          "firstResult": 0.09999999403953552,
+          "elapsed": 0.09999999403953552,
+          "diagnostic": {
+            "cacheHit": true,
+            "stages": {
+              "cacheRead": 0.09999999403953552,
+              "total": 0.09999999403953552,
+              "workerTotal": null
+            }
+          },
+          "scores": {
+            "status": "keep",
+            "sharpness": 100,
+            "exposureScore": 100,
+            "technicalScore": 100
+          }
+        }
+      ]
+    },
+    {
+      "label": "24MP-portrait-webp",
+      "width": 4000,
+      "height": 6000,
+      "type": "image/webp",
+      "bytes": 20034166,
+      "runs": [
+        {
+          "cacheState": "cold",
+          "firstResult": 909.0999999940395,
+          "elapsed": 909.0999999940395,
+          "diagnostic": {
+            "cacheHit": false,
+            "stages": {
+              "decode": 871.4000000059605,
+              "resize": 0.699999988079071,
+              "readback": 5,
+              "score": 18.599999994039536,
+              "thumbnailResize": 0.3999999761581421,
+              "thumbnailEncode": 12.100000023841858,
+              "total": 909,
+              "cacheRead": 0.20000001788139343,
+              "cacheWrite": 0.19999998807907104,
+              "workerTotal": 908.5
+            }
+          },
+          "scores": {
+            "status": "keep",
+            "sharpness": 100,
+            "exposureScore": 100,
+            "technicalScore": 100
+          }
+        },
+        {
+          "cacheState": "warm",
+          "firstResult": 0.20000001788139343,
+          "elapsed": 0.20000001788139343,
+          "diagnostic": {
+            "cacheHit": true,
+            "stages": {
+              "cacheRead": 0.20000001788139343,
+              "total": 0.20000001788139343,
+              "workerTotal": null
+            }
+          },
+          "scores": {
+            "status": "keep",
+            "sharpness": 100,
+            "exposureScore": 100,
+            "technicalScore": 100
+          }
+        }
+      ]
+    }
+  ],
+  "note": "Generated repeating noise; cache and worker timings are end-to-end. Native resize includes decoder internal work. No user photos."
+}

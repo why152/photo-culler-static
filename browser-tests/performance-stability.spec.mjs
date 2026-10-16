@@ -70,7 +70,7 @@ test("a long directory analyzes incrementally and the moved panel previews recov
     )
     .toBe(true);
   await page.getByRole("button", { name: "恢复整批" }).click();
-  await expect(operation).toContainText("已恢复 review batch");
+  await expect(operation).toContainText("已恢复 可恢复批次");
   await expect(page.locator(".photo-card")).toHaveCount(80);
   expect(errors).toEqual([]);
 });
@@ -201,21 +201,18 @@ test("a large JPEG analyzes through the downscaled decode path and still yields 
   expect(result.thumbnailBytes).toBeGreaterThan(0);
 });
 
-test("a hundreds-photo directory keeps the first grid DOM batch bounded", async ({
-  page,
-}) => {
-  const sourceName = `photo-culler-bounded-grid-${crypto.randomUUID()}`;
+test("a hundreds-photo directory keeps DOM bounded while the full queue remains reachable", async ({ page }) => {
+  const sourceName = `photo-culler-grid-window-${crypto.randomUUID()}`;
   await preparePhotoSource(page, sourceName, 360);
-
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
-  const operation = page.getByRole("status", { name: "操作进度", exact: true });
-  await expect(operation).toContainText("照片分析完成");
-  await expect(page.locator(".photo-card")).toHaveCount(160);
-  await expect(page.getByText("已显示 160 / 360")).toBeVisible();
-
-  await page.locator("#grid-load-more").evaluate((button) => button.click());
-  await expect(page.locator(".photo-card")).toHaveCount(320);
-  await expect(page.getByText("已显示 320 / 360")).toBeVisible();
+  await expect(page.locator('[id="photo-card:photo-group:P5000001"]')).toBeVisible();
+  await expect.poll(() => page.locator(".photo-card").count()).toBeLessThanOrEqual(160);
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect(page.locator('[id="photo-card:photo-group:P5000360"]')).toBeVisible();
+  await expect.poll(() => page.locator(".photo-card").count()).toBeLessThanOrEqual(160);
+  await expect(page.locator('[id="photo-card:photo-group:P5000001"]')).toHaveCount(0);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.locator('[id="photo-card:photo-group:P5000001"]')).toBeVisible();
 });
 
 test("closing the moved panel invalidates previews that have not started decoding", async ({
@@ -266,19 +263,22 @@ test("the analysis cache evicts its oldest entries instead of growing without a 
       databaseName: name,
       analysisCacheLimit: 3,
     });
+    const root = await navigator.storage.getDirectory();
+    const directory = await root.getDirectoryHandle(name, { create: true });
+    const scope = await store.analysisScope(directory);
     const files = Array.from({ length: 5 }, (_, index) => ({
       name: `CACHE${index}.JPG`,
       size: 100 + index,
       lastModified: 10 + index,
     }));
     for (const [index, file] of files.entries())
-      await store.saveAnalysis(file, {
+      await scope.saveAnalysis(file, {
         status: "keep",
         sharpness: index,
         thumbnail: null,
       });
     const found = await Promise.all(
-      files.map(async (file) => Boolean(await store.loadAnalysis(file))),
+      files.map(async (file) => Boolean(await scope.loadAnalysis(file))),
     );
     await store.close?.();
     await new Promise((resolve, reject) => {
@@ -294,7 +294,7 @@ test("the analysis cache evicts its oldest entries instead of growing without a 
   expect(availability).toEqual([false, false, true, true, true]);
 });
 
-test("the version-one analysis cache migrates without losing readable results", async ({
+test("the version-one unscoped analysis cache is invalidated on migration", async ({
   page,
 }) => {
   await page.goto("/");
@@ -344,5 +344,5 @@ test("the version-one analysis cache migrates without losing readable results", 
     return analysis;
   }, databaseName);
 
-  expect(result).toMatchObject({ status: "keep", sharpness: 73 });
+  expect(result).toBeNull();
 });

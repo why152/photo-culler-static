@@ -625,3 +625,19 @@ test("analysis indexes rebuild after membership changes and ignore moved IDs", a
   assert.equal(workspace.getPhotoGroup("photo-group:ONE")?.id, "photo-group:ONE");
   assert.equal(workspace.getPhotoGroup("photo-group:TWO"), current.photoGroups.find(({ id }) => id === "photo-group:TWO"));
 });
+
+test("move confirmation plans the exact batch name and counts used by the later file action", async () => {
+  const source = new MemoryDirectoryHandle("source");
+  source.addFile("ONE.JPG"); source.addFile("ONE.RW2"); source.addFile("ONE.XMP");
+  let names = 0;
+  const workspace = new ReviewWorkspace({ batchNameFactory: () => `_PhotoCull_Review_planned_${++names}` });
+  await workspace.openDirectory(source);
+  const plan = workspace.prepareMovePhotoGroups(["photo-group:ONE"]);
+  assert.equal(plan.groupCount, 1);
+  assert.equal(plan.fileCount, 3);
+  assert.equal(plan.batchName, "_PhotoCull_Review_planned_1");
+  const moved = await workspace.movePhotoGroups(plan.photoGroupIds, { batchName: plan.batchName });
+  assert.equal(moved.id, plan.batchName);
+  assert.equal(names, 1);
+  assert.equal(moved.fileCount, plan.fileCount);
+});

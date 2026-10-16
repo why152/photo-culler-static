@@ -64,7 +64,7 @@ test("PNG and WEBP photo groups scan, analyze, move, and restore like JPEG group
     .toBe(true);
 
   await page.getByRole("button", { name: "恢复整批" }).click();
-  await expect(operation).toContainText("已恢复 review batch");
+  await expect(operation).toContainText("已恢复 可恢复批次");
   await expect(page.locator(".photo-card")).toHaveCount(2);
   expect(errors).toEqual([]);
 });

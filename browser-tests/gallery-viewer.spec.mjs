@@ -187,10 +187,10 @@ test("action selection is explicit, supports Shift ranges, and does not replace 
     .click({ modifiers: ["Shift"] });
 
   const selectionBar = page.getByRole("region", { name: "批量选择" });
-  await expect(selectionBar).toContainText("已选 3 个 photo group");
+  await expect(selectionBar).toContainText("已选 3 个照片组");
   await page.locator('[id="photo-card:photo-group:P1000002"]').click();
   await expect(page.getByRole("dialog", { name: "Photo Viewer" })).toBeVisible();
-  await expect(selectionBar).toContainText("已选 3 个 photo group");
+  await expect(selectionBar).toContainText("已选 3 个照片组");
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   await expect(selectionBar).toBeHidden();
@@ -208,7 +208,7 @@ test("an empty review filter explains its result without creating a file action"
 
   await page.getByRole("button", { name: "精选" }).click();
   await expect(page.locator("#photo-grid").getByRole("status")).toHaveText(
-    "没有符合“精选”筛选条件的 photo group。",
+    "没有符合“精选”筛选条件的 照片组。",
   );
   expect(await sourceEntryNames(page, sourceName)).toEqual(originalEntries);
 });
@@ -234,7 +234,7 @@ test("Photo Viewer leaves Space to its focused controls and returns focus after 
   await page.keyboard.press("1");
   await expect(viewer).toBeHidden();
   await expect(page.locator("#photo-grid").getByRole("status")).toHaveText(
-    "没有符合“未筛”筛选条件的 photo group。",
+    "没有符合“未筛”筛选条件的 照片组。",
   );
   await expect(page.getByRole("button", { name: "未筛" })).toBeFocused();
 });
@@ -374,7 +374,7 @@ test("suggested removal provides an explicit selection step before a recoverable
     .getByRole("button", { name: "选择全部建议移出" })
     .click();
 
-  await expect(selectionBar).toContainText("已选 1 个 photo group");
+  await expect(selectionBar).toContainText("已选 1 个照片组");
   await expect(page.getByRole("button", { name: "移动已选项" })).toBeVisible();
   expect(await sourceEntryNames(page, sourceName)).toEqual(originalEntries);
 });

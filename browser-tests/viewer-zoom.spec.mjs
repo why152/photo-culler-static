@@ -41,6 +41,8 @@ test("Photo Viewer zooms with the wheel, pans with drag, and resets with keyboar
 
   const viewer = page.getByRole("dialog", { name: "Photo Viewer" });
   await expect(viewer).toBeVisible();
+  await expect(page.locator("#viewer-image-frame")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("#viewer-zoom-in")).toBeEnabled();
   const zoomLabel = page.locator("#viewer-zoom-label");
   await expect(zoomLabel).toHaveText("100%");
 
@@ -103,6 +105,8 @@ test("Photo Viewer zoom buttons and double-click toggle, and zoom resets when th
 
   const viewer = page.getByRole("dialog", { name: "Photo Viewer" });
   await expect(viewer).toBeVisible();
+  await expect(page.locator("#viewer-image-frame")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("#viewer-zoom-in")).toBeEnabled();
   const zoomLabel = page.locator("#viewer-zoom-label");
   const frame = page.locator("#viewer-image-frame");
   const frameBox = await frame.boundingBox();

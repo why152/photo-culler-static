@@ -158,6 +158,8 @@ test("Review Workspace restores valid review decisions when the same directory i
       "photo-group:missing": "reject",
     },
     selectedId: "photo-group:P1000002",
+    scrollY: 0,
+    viewerOpen: false,
     candidates: ["photo-group:P1000001", "photo-group:missing"],
     marked: ["photo-group:P1000001", "photo-group:missing"],
     filter: "keep",
@@ -175,6 +177,8 @@ test("Review Workspace restores valid review decisions when the same directory i
   assert.deepEqual(resumed.review, {
     decisions: { "photo-group:P1000001": "keep" },
     selectedId: "photo-group:P1000002",
+    scrollY: 0,
+    viewerOpen: false,
     candidates: ["photo-group:P1000001"],
     marked: ["photo-group:P1000001"],
     filter: "keep",
@@ -485,4 +489,47 @@ test("per-group analysis updates preserve identities and avoid full-list or revi
   assert.equal(current.photoGroups, array);
   assert.equal(current.review, review);
   assert.equal(reviewScans, 0);
+});
+
+test("early previews preserve stable groups and never overwrite final scores or report completed progress", async () => {
+  const source = directoryHandle("source", [fileHandle("ONE.JPG")]);
+  let options;
+  let finish;
+  const priority = () => ["photo-group:ONE"];
+  const events = [];
+  const workspace = new ReviewWorkspace({ analyzer: (_groups, callbacks) => {
+    options = callbacks;
+    return new Promise((resolve) => { finish = resolve; });
+  } });
+  const current = await workspace.openDirectory(source, { getPriority: priority, onAnalysis: (event) => events.push(event) });
+  const group = current.photoGroups[0];
+  assert.equal(options.directory, source);
+  assert.equal(options.getPriority, priority);
+  const thumbnail = new Blob(["thumbnail"]);
+  options.onPreview({ id: group.id, analysis: { thumbnail } }, 0, 1);
+  assert.equal(current.photoGroups[0], group);
+  assert.equal(group.analysis.thumbnail, thumbnail);
+  assert.equal(group.analysis.status, "pending");
+  assert.equal(events[0].preview, true);
+  assert.equal(events[0].done, 0);
+  options.onResult({ id: group.id, analysis: { status: "keep", technicalScore: 90, thumbnail } }, 1, 1);
+  options.onPreview({ id: group.id, analysis: { thumbnail: new Blob(["stale"]) } }, 0, 1);
+  assert.equal(group.analysis.technicalScore, 90);
+  assert.equal(events.length, 2);
+  finish([]);
+  await current.analysisPromise;
+});
+
+test("review positions preserve explicit viewer state and validate scroll offsets", async () => {
+  const source = directoryHandle("source", [fileHandle("ONE.JPG")]);
+  const workspace = new ReviewWorkspace();
+  await workspace.openDirectory(source);
+  const position = await workspace.saveReview({ selectedId: "photo-group:ONE", scrollY: 1234.5, viewerOpen: false });
+  assert.equal(position.selectedId, "photo-group:ONE");
+  assert.equal(position.scrollY, 1234.5);
+  assert.equal(position.viewerOpen, false);
+  const invalid = await workspace.saveReview({ selectedId: "missing", scrollY: Infinity, viewerOpen: true });
+  assert.equal(invalid.selectedId, null);
+  assert.equal(invalid.scrollY, 0);
+  assert.equal(invalid.viewerOpen, false);
 });

@@ -92,3 +92,24 @@ test("toggle double-click zooms to 2x and returns to fit", () => {
   assert.equal(zoom.zoomFactor, 1);
   assert.equal(zoom.isZoomed, false);
 });
+
+test("frame resize preserves zoom and the normalized image point at the center", () => {
+  const zoom = new ViewerZoom();
+  zoom.setImage(1200, 800, 2400, 1200);
+  zoom.zoomAt(600, 400, 2);
+  zoom.panBy(80, 30);
+  const center = () => [
+    (zoom.frameWidth / 2 - zoom.contentX - zoom.offsetX) / (zoom.contentWidth * zoom.zoom),
+    (zoom.frameHeight / 2 - zoom.contentY - zoom.offsetY) / (zoom.contentHeight * zoom.zoom),
+  ];
+  const before = center();
+  zoom.resize(1000, 600);
+  assert.equal(zoom.zoomFactor, 2);
+  center().forEach((value, index) => assert.ok(Math.abs(value - before[index]) < 1e-10));
+  zoom.reset();
+  zoom.resize(800, 1000);
+  assert.equal(zoom.contentWidth, 800);
+  assert.equal(zoom.contentHeight, 400);
+  assert.equal(zoom.contentY, 300);
+  assert.equal(zoom.zoomFactor, 1);
+});

@@ -68,6 +68,20 @@ export class ViewerZoom {
     this.reset();
   }
 
+  resize(frameWidth, frameHeight) {
+    if (!this.hasImage() || frameWidth <= 0 || frameHeight <= 0) return;
+    const centerX = (this.frameWidth / 2 - this.contentX - this.offsetX) /
+      (this.contentWidth * this.zoom);
+    const centerY = (this.frameHeight / 2 - this.contentY - this.offsetY) /
+      (this.contentHeight * this.zoom);
+    const zoom = this.zoom;
+    this.setImage(frameWidth, frameHeight, this.naturalWidth, this.naturalHeight);
+    this.zoom = zoom;
+    this.offsetX = frameWidth / 2 - this.contentX - centerX * this.contentWidth * zoom;
+    this.offsetY = frameHeight / 2 - this.contentY - centerY * this.contentHeight * zoom;
+    this.clampOffsets();
+  }
+
   get zoomFactor() {
     return this.zoom;
   }

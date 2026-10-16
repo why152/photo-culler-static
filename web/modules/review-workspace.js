@@ -85,6 +85,8 @@ function normalizeReview(review, photoGroups) {
   return {
     decisions,
     selectedId: validIds.has(review?.selectedId) ? review.selectedId : null,
+    scrollY: Number.isFinite(review?.scrollY) && review.scrollY >= 0 ? review.scrollY : 0,
+    viewerOpen: validIds.has(review?.selectedId) && review?.viewerOpen === true,
     candidates,
     marked,
     filter: REVIEW_FILTERS.has(review?.filter) ? review.filter : "all",
@@ -219,7 +221,7 @@ async function prepareRestoreActions(sourceDirectory, batchDirectory, records) {
     if (source && destination)
       throw movementError(`源目录已存在 ${record.source}，拒绝覆盖。`);
     if (!source && !destination)
-      throw movementError(`无法找到 ${record.source} 或其 review batch 成员。`);
+      throw movementError(`无法找到 ${record.source} 或其 可恢复批次 成员。`);
     if (!source && destination) actions.push({ record, destination });
     record.state = source ? "restored" : "moved";
   }
@@ -304,8 +306,10 @@ export class ReviewWorkspace {
   }
 
   #photoGroupIndices = new WeakMap();
+  #completedAnalysis = new WeakMap();
 
   #indexPhotoGroups(current) {
+    if (!this.#completedAnalysis.has(current)) this.#completedAnalysis.set(current, new Set());
     this.#photoGroupIndices.set(current, new Map(
       current.photoGroups.map((group) => [group.id, group]),
     ));
@@ -321,7 +325,28 @@ export class ReviewWorkspace {
     // Preserve group identity for cached gallery queues and thumbnail handlers.
     // Membership changes rebuild this index; stale moved IDs are never added.
     Object.assign(indexed, analyzedGroup);
+    this.#completedAnalysis.get(current).add(analyzedGroup.id);
     return true;
+  }
+
+  #applyPreview(current, previewGroup) {
+    const group = this.getPhotoGroup(previewGroup.id, current);
+    if (!group || this.current !== current || this.#completedAnalysis.get(current)?.has(group.id)) return false;
+    group.analysis = { ...group.analysis, status: "pending", thumbnail: previewGroup.analysis.thumbnail };
+    return true;
+  }
+
+  prepareMovePhotoGroups(photoGroupIds) {
+    if (!this.current) throw new Error("请先选择一个照片文件夹。");
+    if (this.activeOperation) throw movementError("请等待当前操作完成。");
+    const ids = [...new Set(photoGroupIds)];
+    const groups = ids.map((id) => this.getPhotoGroup(id));
+    if (!groups.length || groups.some((group) => !group))
+      throw movementError("请选择当前目录中的至少一个完整照片组。");
+    const batchName = this.batchNameFactory();
+    if (!batchName.startsWith(REVIEW_BATCH_PREFIX)) throw movementError("可恢复批次名称无效。");
+    return { photoGroupIds: ids, batchName, groupCount: groups.length,
+      fileCount: groups.reduce((count, group) => count + group.members.length, 0) };
   }
 
   async #withExclusiveOperation(operation, callback) {
@@ -349,7 +374,7 @@ export class ReviewWorkspace {
     );
   }
 
-  async #openDirectoryContents(directory, { onProgress, onAnalysis } = {}) {
+  async #openDirectoryContents(directory, { onProgress, onAnalysis, onPreview, getPriority } = {}) {
     if (!isOrdinarySourceDirectory(directory)) {
       throw new Error("请选择一个有效的普通照片文件夹。");
     }
@@ -377,6 +402,13 @@ export class ReviewWorkspace {
     this.#indexPhotoGroups(current);
     current.analysisPromise = Promise.resolve(
       this.analyzer(scannedPhotoGroups, {
+        directory,
+        getPriority,
+        onPreview: (group, done, total) => {
+          if (analysisController.signal.aborted || !this.#applyPreview(current, group)) return;
+          onPreview?.(group, done, total);
+          onAnalysis?.({ current, done, total, groupId: group.id, complete: false, preview: true });
+        },
         signal: analysisController.signal,
         onProgress: (done, total) => {
           if (
@@ -460,7 +492,7 @@ export class ReviewWorkspace {
     );
   }
 
-  async #movePhotoGroupsInWorkspace(photoGroupIds, { onProgress = () => {} } = {}) {
+  async #movePhotoGroupsInWorkspace(photoGroupIds, { onProgress = () => {}, batchName: preparedBatchName } = {}) {
     const current = this.current;
     if (!current) throw new Error("请先选择一个照片文件夹。");
     const wanted = new Set(photoGroupIds);
@@ -468,7 +500,7 @@ export class ReviewWorkspace {
       wanted.has(group.id),
     );
     if (!groups.length || groups.length !== wanted.size)
-      throw movementError("请选择当前目录中的至少一个完整 photo group。");
+      throw movementError("请选择当前目录中的至少一个完整 照片组。");
     if (
       groups.some((group) =>
         group.members.some((member) => typeof member.move !== "function"),
@@ -479,11 +511,11 @@ export class ReviewWorkspace {
       );
     }
 
-    const batchName = this.batchNameFactory();
+    const batchName = preparedBatchName ?? this.batchNameFactory();
     if (!batchName.startsWith(REVIEW_BATCH_PREFIX))
-      throw movementError("review batch 名称无效。");
+      throw movementError("可恢复批次 名称无效。");
     if (await getDirectoryOrNull(current.directory, batchName))
-      throw movementError("同名 review batch 已存在，请重试。");
+      throw movementError("同名 可恢复批次 已存在，请重试。");
     const destination = await current.directory.getDirectoryHandle(
       batchName,
       { create: true },
@@ -561,17 +593,17 @@ export class ReviewWorkspace {
     );
   }
 
-  async #restoreMovedBatchInWorkspace(batchId, { onProgress = () => {} } = {}) {
+  async #restoreMovedBatchInWorkspace(batchId, { onProgress = () => {}, onPreview, getPriority } = {}) {
     const current = this.current;
     if (!current) throw new Error("请先选择一个照片文件夹。");
     const batch = current.movedBatches.find(
       (candidate) => candidate.id === batchId,
     );
     if (!batch)
-      throw new Error("找不到可恢复的 review batch。请重新选择照片文件夹。");
+      throw new Error("找不到可恢复的批次。请重新选择照片文件夹。");
     const journal = await readJournal(batch.directory);
     if (!validJournal(journal))
-      throw new Error("review batch 的 movement journal 无效。");
+      throw new Error("可恢复批次 的 移动记录 无效。");
 
     const actions = await prepareRestoreActions(
       current.directory,
@@ -596,6 +628,7 @@ export class ReviewWorkspace {
     this.analysisController?.abort(abortError());
     current.photoGroups = await this.analyzer(
       await scanPhotoGroups(current.directory),
+      { directory: current.directory, getPriority, onPreview },
     );
     this.#indexPhotoGroups(current);
     current.review = normalizeReview(
@@ -615,7 +648,7 @@ export class ReviewWorkspace {
   async #restoreMovedPhotoGroupInWorkspace(
     batchId,
     photoGroupId,
-    { onProgress = () => {} } = {},
+    { onProgress = () => {}, onPreview, getPriority } = {},
   ) {
     const current = this.current;
     if (!current) throw new Error("请先选择一个照片文件夹。");
@@ -623,15 +656,15 @@ export class ReviewWorkspace {
       (candidate) => candidate.id === batchId,
     );
     if (!batch)
-      throw new Error("找不到可恢复的 review batch。请重新选择照片文件夹。");
+      throw new Error("找不到可恢复的批次。请重新选择照片文件夹。");
     const journal = await readJournal(batch.directory);
     if (!validJournal(journal))
-      throw new Error("review batch 的 movement journal 无效。");
+      throw new Error("可恢复批次 的 移动记录 无效。");
     const records = journal.records.filter(
       (record) => record.groupId === photoGroupId,
     );
     if (!records.length)
-      throw new Error("该 photo group 不在指定的 review batch 中。");
+      throw new Error("该 照片组 不在指定的 可恢复批次 中。");
 
     const actions = await prepareRestoreActions(
       current.directory,
@@ -665,6 +698,7 @@ export class ReviewWorkspace {
     this.analysisController?.abort(abortError());
     current.photoGroups = await this.analyzer(
       await scanPhotoGroups(current.directory),
+      { directory: current.directory, getPriority, onPreview },
     );
     this.#indexPhotoGroups(current);
     current.review = normalizeReview(

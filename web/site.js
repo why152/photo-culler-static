@@ -1,3 +1,5 @@
+import { ViewerPreviewCache } from "./modules/viewer-preview-cache.js";
+import { PreviewUrlPool } from "./modules/preview-url-pool.js";
 import { BrowserPhotoAnalyzer } from "./modules/photo-analysis.js";
 import { BrowserReviewStore } from "./modules/browser-store.js";
 import { GalleryInteraction } from "./modules/gallery-interaction.js";
@@ -81,6 +83,9 @@ const movedPreviewImages = new Map();
 let movedPreviewQueue = Promise.resolve();
 let movedPreviewGeneration = 0;
 let viewerPreview = null;
+const viewerPreviewCache = new ViewerPreviewCache();
+const viewerThumbnailUrls = new PreviewUrlPool();
+let positionTimer = null;
 const viewerZoom = new ViewerZoom();
 let decisionHistory = new ReviewDecisionHistory();
 let reviewSaveQueue = null;
@@ -182,13 +187,15 @@ function failOperation(operation) {
 function stopMovedPreviews() {
   movedPreviewGeneration += 1;
 }
-function releaseViewerPreview() {
+function releaseViewerPreview({ preserveFullCache = false } = {}) {
   const viewerImage = elements["viewer-image"];
   viewerImage.onload = null;
   viewerImage.onerror = null;
   viewerImage.removeAttribute("src");
   viewerImage.alt = "";
-  if (viewerPreview) URL.revokeObjectURL(viewerPreview.url);
+  viewerThumbnailUrls.clear();
+  if (!preserveFullCache) viewerPreviewCache.clear();
+  delete viewerImage.dataset.previewStage;
   viewerPreview = null;
 }
 function releaseFilmstripPreviews() {
@@ -223,12 +230,33 @@ function nextUnreviewed() {
 function reviewPayload() {
   return {
     decisions: state.review.decisions,
-    selectedId: null,
+    selectedId: state.review.selectedId,
+    scrollY: state.review.scrollY,
+    viewerOpen: state.review.viewerOpen,
     candidates: state.review.candidates,
     marked: [],
     filter: state.filter,
     density: state.density,
   };
+}
+function updateReviewPosition(position) {
+  if (!state || workspaceTransition) return;
+  const changed = Object.entries(position).some(([key, value]) => state.review[key] !== value);
+  if (!changed) return;
+  Object.assign(state.review, position);
+  clearTimeout(positionTimer);
+  const session = state;
+  positionTimer = setTimeout(() => {
+    positionTimer = null;
+    if (state === session) persistReview();
+  }, 250);
+  renderReviewSaveStatus({ pending: reviewSaveQueue?.pending ?? 0, error: reviewSaveQueue?.error });
+}
+function flushPosition() {
+  if (positionTimer === null) return;
+  clearTimeout(positionTimer);
+  positionTimer = null;
+  if (state) persistReview();
 }
 function persistReview() {
   // Share optimistic preferences with analysis callbacks as well as the UI.
@@ -237,6 +265,7 @@ function persistReview() {
   void reviewSaveQueue.enqueue(reviewPayload());
 }
 function renderReviewSaveStatus({ pending, error }) {
+  pending = pending || positionTimer !== null;
   reviewSaveStatus.replaceChildren();
   reviewSaveStatus.hidden = !pending && !error;
   if (error) {
@@ -249,6 +278,7 @@ function renderReviewSaveStatus({ pending, error }) {
   } else if (pending) reviewSaveStatus.textContent = "正在保存审核记录…";
 }
 async function flushReview() {
+  flushPosition();
   return !reviewSaveQueue || await reviewSaveQueue.flush();
 }
 function reconcileFileOperationError() {
@@ -269,8 +299,13 @@ function activeFilterButton() {
 }
 function restoreViewerReturn(returnTarget, fallback = activeFilterButton()) {
   if (!returnTarget) return;
+  const sessionState = state;
   requestAnimationFrame(() => {
+    if (state !== sessionState) return;
     window.scrollTo({ top: returnTarget.scrollY ?? window.scrollY });
+    const photoGroupId = returnTarget.focusId?.startsWith("photo-card:")
+      ? returnTarget.focusId.slice("photo-card:".length) : null;
+    if (photoGroupId) gridView.ensureGroup(photoGroupId);
     const returnElement = document.getElementById(returnTarget.focusId);
     (returnElement ?? fallback)?.focus({ preventScroll: true });
   });
@@ -286,6 +321,7 @@ const gridView = new PhotoGridView({
   }),
   filterLabels,
   decisionLabels,
+  indexOf: (id) => gallery?.visibleIndexOf(id) ?? -1,
   onOpen: (photoGroupId, focusId) => {
     if (!gallery?.photoGroup(photoGroupId)) return;
     gallery.open(photoGroupId, { focusId, scrollY: window.scrollY });
@@ -316,6 +352,7 @@ function renderViewer() {
   if (viewer && group) elements["photo-viewer"].append(reviewSaveStatus);
   else elements["interaction-status"].after(reviewSaveStatus);
   if (!viewer || !group) {
+    updateReviewPosition({ viewerOpen: false, scrollY: window.scrollY });
     releaseViewerPreview();
     releaseFilmstripPreviews();
     elements["viewer-image-frame"].setAttribute("aria-busy", "false");
@@ -325,38 +362,51 @@ function renderViewer() {
     return;
   }
   const viewerImage = elements["viewer-image"];
+  updateReviewPosition({ selectedId: group.id, viewerOpen: true,
+    scrollY: gallery.viewer.returnTarget.scrollY ?? window.scrollY });
   if (viewerPreview?.photoGroupId !== group.id) {
-    releaseViewerPreview();
+    releaseViewerPreview({ preserveFullCache: true });
     viewerZoom.reset();
     applyViewerZoom();
-    const url = URL.createObjectURL(group.analysisFile);
-    viewerPreview = { photoGroupId: group.id, url };
+    const preview = { photoGroupId: group.id, full: false };
+    viewerPreview = preview;
+    viewerPreviewCache.retain([group, neighbor(-1), neighbor(1)]);
     elements["viewer-image-frame"].setAttribute("aria-busy", "true");
     elements["viewer-image-status"].hidden = false;
     elements["viewer-image-status"].textContent = `正在呈现 ${group.analysisFile.name}…`;
-    viewerImage.onload = () => {
-      if (viewerImage.src !== url) return;
+    updateViewerThumbnail(group);
+    void viewerPreviewCache.load(group).then((loaded) => {
+      if (viewerPreview !== preview || currentGroup()?.id !== group.id) return;
+      preview.full = true;
+      preview.loaded = loaded;
+      viewerImage.onload = () => {
+        if (viewerPreview !== preview || viewerImage.src !== loaded.url) return;
+        elements["viewer-image-frame"].setAttribute("aria-busy", "false");
+        elements["viewer-image-status"].hidden = true;
+        viewerThumbnailUrls.clear();
+        viewerZoom.setImage(elements["viewer-image-frame"].clientWidth,
+          elements["viewer-image-frame"].clientHeight, loaded.width, loaded.height);
+        applyViewerZoom();
+      };
+      viewerImage.onerror = () => {
+        if (viewerPreview !== preview) return;
+        elements["viewer-image-frame"].setAttribute("aria-busy", "false");
+        elements["viewer-image-status"].textContent = "无法呈现清晰大图。";
+        elements["viewer-image-status"].hidden = false;
+      };
+      viewerImage.dataset.previewStage = "full";
+      viewerImage.src = loaded.url;
+      viewerImage.alt = `${group.analysisFile.name} 全分辨率预览`;
+      void viewerPreviewCache.warm(neighbor(-1));
+      void viewerPreviewCache.warm(neighbor(1));
+    }, (error) => {
+      if (viewerPreview !== preview || error?.name === "AbortError") return;
       elements["viewer-image-frame"].setAttribute("aria-busy", "false");
-      elements["viewer-image-status"].hidden = true;
-      viewerZoom.setImage(
-        elements["viewer-image-frame"].clientWidth,
-        elements["viewer-image-frame"].clientHeight,
-        viewerImage.naturalWidth,
-        viewerImage.naturalHeight,
-      );
-      applyViewerZoom();
-    };
-    viewerImage.onerror = () => {
-      if (viewerImage.src !== url) return;
-      elements["viewer-image-frame"].setAttribute("aria-busy", "false");
-      elements["viewer-image-status"].textContent = "无法呈现这张照片。";
+      elements["viewer-image-status"].textContent = group.analysis.thumbnail
+        ? "清晰大图无法加载，可继续审核缩略图。" : "无法呈现这张照片。";
       elements["viewer-image-status"].hidden = false;
-      viewerZoom.reset();
-      applyViewerZoom();
-    };
-    viewerImage.src = url;
+    });
   }
-  viewerImage.alt = `${group.analysisFile.name} 全分辨率预览`;
   elements["viewer-position"].textContent = `${viewer.index + 1} / ${viewer.total}`;
   updateViewerCopy(group);
   elements["viewer-previous"].disabled = !viewer.canGoPrevious;
@@ -371,6 +421,14 @@ function renderViewer() {
   filmstripView.render(gallery.visiblePhotoGroups(), group.id);
 }
 
+function updateViewerThumbnail(group) {
+  if (!group.analysis.thumbnail || viewerPreview?.photoGroupId !== group.id || viewerPreview.full) return;
+  const image = elements["viewer-image"];
+  image.src = viewerThumbnailUrls.urlFor(group.id, group.analysis.thumbnail);
+  image.dataset.previewStage = "thumbnail";
+  image.alt = `${group.analysisFile.name} 缩略图预览`;
+  elements["viewer-image-status"].textContent = "缩略图已就绪，正在加载清晰大图…";
+}
 function viewerFramePoint(event) {
   const rect = elements["viewer-image-frame"].getBoundingClientRect();
   return {
@@ -405,7 +463,7 @@ function zoomAtFrameCenter(factor) {
 }
 function updateViewerCopy(group) {
   elements["viewer-kicker"].textContent =
-    `${group.analysis.status.toUpperCase()} · ${group.members.length} 个成员${group.hasRaw ? " · RAW" : ""}`;
+    `${({ keep: "技术检查通过", review: "需人工复核", pending: "正在分析技术指标" })[group.analysis.status] ?? "需人工复核"} · ${group.members.length} 个成员${group.hasRaw ? " · RAW" : ""}`;
   elements["viewer-name"].textContent = group.analysisFile.name;
   elements["viewer-reasons"].textContent = group.analysis.reasons.join("；");
 }
@@ -431,7 +489,7 @@ function renderMovedBatches() {
       const title = document.createElement("h3");
       title.textContent = batch.id;
       const count = document.createElement("p");
-      count.textContent = `${batch.photoGroups.length} 个可恢复 photo group`;
+      count.textContent = `${batch.photoGroups.length} 个可恢复照片组`;
       copy.append(title, count);
       const restore = document.createElement("button");
       restore.type = "button";
@@ -554,9 +612,9 @@ function renderControls() {
     !isFileOperation(fileOperation);
   elements["action-selection-count"].textContent =
     selectedCount
-      ? `已选 ${selectedCount} 个 photo group`
+      ? `已选 ${selectedCount} 个照片组`
       : suggestedRemovals.length
-        ? "选择候选项以创建可恢复 review batch"
+        ? "选择候选项以创建可恢复批次"
         : "文件操作反馈";
   elements["select-suggested-removals"].hidden = !suggestedRemovals.length;
   elements["select-suggested-removals"].disabled = allSuggestedRemovalsSelected;
@@ -567,7 +625,7 @@ function renderControls() {
   elements["move-button"].hidden = !selectedCount;
   elements["move-button"].disabled = !selectedCount || fileOperation.isBusy;
   elements["review-count"].textContent =
-    `${state.photoGroups.length} 个当前 photo group · ${visibleGroups().length} 个可见`;
+    `已筛 ${state.reviewedCount} / ${state.photoGroups.length} · 当前筛选 ${visibleGroups().length} 个照片组`;
 }
 function render({ viewerCloseFallback } = {}) {
   if (!state) return;
@@ -598,11 +656,7 @@ function moveViewer(direction) {
 function closeViewer() {
   const returnTarget = gallery?.close();
   render();
-  if (!returnTarget) return;
-  requestAnimationFrame(() => {
-    window.scrollTo({ top: returnTarget.scrollY ?? window.scrollY });
-    document.getElementById(returnTarget.focusId)?.focus({ preventScroll: true });
-  });
+  restoreViewerReturn(returnTarget);
 }
 function showError(error) {
   const current = operationFeedback.state();
@@ -625,7 +679,7 @@ function analysisFeedback(done, total, complete = false) {
     completeOperation({
       kind: "analysis",
       title: "照片分析完成",
-      detail: `已分析 ${done} / ${total} 个 photo group。`,
+      detail: `已分析 ${done} / ${total} 个照片组。`,
     });
     return;
   }
@@ -634,7 +688,7 @@ function analysisFeedback(done, total, complete = false) {
     title: "正在分析照片",
     completed: done,
     total,
-    detail: `已分析 ${done} / ${total} 个 photo group。`,
+    detail: `已分析 ${done} / ${total} 个照片组。`,
   });
 }
 function setFolderActionsBusy(isBusy) {
@@ -644,12 +698,18 @@ function setFolderActionsBusy(isBusy) {
   }
 }
 function applyScan(scan) {
+  clearTimeout(positionTimer);
+  positionTimer = null;
   clearUrls();
+  // Rendering updates the live review position; capture persisted values first.
+  const savedPosition = { selectedId: scan.review.selectedId,
+    viewerOpen: scan.review.viewerOpen, scrollY: scan.review.scrollY ?? 0 };
   state = {
     ...scan,
     filter: scan.review.filter,
     density: scan.review.density,
     review: scan.review,
+    reviewedCount: Object.keys(scan.review.decisions).length,
   };
   decisionHistory = new ReviewDecisionHistory();
   const sessionState = state;
@@ -670,7 +730,20 @@ function applyScan(scan) {
   elements["review-rail"].hidden = false;
   elements["resume-folder"].hidden = false;
   elements["choose-folder"].hidden = false;
+  const savedId = savedPosition.selectedId;
+  const savedVisible = savedId && gallery.visibleIndexOf(savedId) >= 0;
+  if (savedVisible && savedPosition.viewerOpen) gallery.open(savedId, {
+    focusId: `photo-card:${savedId}`, scrollY: savedPosition.scrollY,
+  });
   render();
+  requestAnimationFrame(() => {
+    if (state !== sessionState) return;
+    if (gallery.viewer) elements["viewer-close"].focus();
+    else {
+      window.scrollTo({ top: savedPosition.scrollY });
+      if (savedVisible) gridView.ensureGroup(savedId)?.querySelector(".photo-card")?.focus({ preventScroll: true });
+    }
+  });
 }
 async function openWorkspace(action, pendingPicker = null) {
   if (workspaceTransition) return;
@@ -685,11 +758,12 @@ async function openWorkspace(action, pendingPicker = null) {
     beginOperation({
       kind: "scan",
       title: "正在读取照片文件夹",
-      detail: "正在整理本地 photo group…",
+      detail: "正在整理本地照片组…",
     });
     const scan = await action({
+      getPriority: () => [gallery?.viewer?.photoGroupId, neighbor(-1)?.id, neighbor(1)?.id, ...gridView.priorityIds()].filter(Boolean),
       onProgress: (done, total) => analysisFeedback(done, total),
-      onAnalysis: ({ current, done, total, complete, error, groupId }) => {
+      onAnalysis: ({ current, done, total, complete, error, groupId, preview }) => {
         if (!state || state.directory !== current.directory) return;
         state.photoGroups = current.photoGroups;
         state.review = current.review;
@@ -700,7 +774,7 @@ async function openWorkspace(action, pendingPicker = null) {
           const group = gallery.photoGroup(groupId);
           if (group) renderAnalysisResult(group);
         }
-        if (!workspaceTransition) {
+        if (!workspaceTransition && !preview) {
           if (error) showError(error);
           else analysisFeedback(done, total, complete);
         }
@@ -726,14 +800,19 @@ function renderAnalysisResult(group) {
   if (!viewer) return;
   if (filmstripView.has(group.id))
     filmstripView.update(group, viewer.photoGroupId);
-  if (viewer.photoGroupId === group.id) updateViewerCopy(group);
+  if (viewer.photoGroupId === group.id) {
+    updateViewerCopy(group);
+    updateViewerThumbnail(group);
+  }
 }
 function decide(decision) {
   if (workspaceTransition) return;
   const group = currentGroup();
   if (!group) return;
   const next = neighbor(1);
+  const previous = decisionFor(group);
   if (decisionHistory.record(state.review.decisions, group.id, decision)) {
+    state.reviewedCount += Number(decision !== null) - Number(previous !== null);
     gallery.invalidateDecisions();
     persistReview();
   }
@@ -744,7 +823,10 @@ function decide(decision) {
 }
 function undoDecision() {
   if (workspaceTransition) return;
+  const change = decisionHistory.changes.at(-1);
+  const previous = change ? state.review.decisions[change.photoGroupId] ?? null : null;
   if (!decisionHistory.undo(state.review.decisions)) return;
+  state.reviewedCount += Number(change.previous !== null) - Number(previous !== null);
   gallery.invalidateDecisions();
   persistReview();
   render();
@@ -765,17 +847,13 @@ async function moveActionSelection() {
   if (workspaceTransition) return;
   const selectedIds = gallery?.selectedPhotoGroupIds() ?? [];
   if (!selectedIds.length) return;
-  const selectedGroups = state.photoGroups.filter((group) =>
-    selectedIds.includes(group.id),
-  );
-  const groupCount = selectedGroups.length;
-  const fileCount = selectedGroups.reduce(
-    (count, group) => count + group.members.length,
-    0,
-  );
+  let plan;
+  try { plan = workspace.prepareMovePhotoGroups(selectedIds); }
+  catch (error) { showError(error); return; }
+  const { groupCount, fileCount } = plan;
   if (
     !window.confirm(
-      `确认移动 ${groupCount} 个完整 photo group、共 ${fileCount} 个文件成员到新的可恢复 review batch？`,
+      `确认移动 ${groupCount} 个照片组、共 ${fileCount} 个文件到“${plan.batchName}”？\n位置：当前文件夹“${state.directoryName}”内。\n可从“已移动”恢复。`,
     )
   ) {
     setInteractionStatus("已取消移动；照片未改动。");
@@ -786,10 +864,10 @@ async function moveActionSelection() {
   setFolderActionsBusy(true);
   progressOperation({
     kind: "move",
-    title: "正在移动 photo group",
+    title: "正在移动照片组",
     completed: 0,
     total: groupCount,
-    detail: `已移动 0 / ${groupCount} 个 photo group；文件 0 / ${fileCount}。`,
+    detail: `已移动 0 / ${groupCount} 个照片组；文件 0 / ${fileCount}。`,
   });
   try {
     if (!await flushReview()) {
@@ -797,6 +875,7 @@ async function moveActionSelection() {
       return;
     }
     await workspace.movePhotoGroups(selectedIds, {
+      batchName: plan.batchName,
       onProgress: ({
         filesDone,
         fileCount: totalFiles,
@@ -805,17 +884,17 @@ async function moveActionSelection() {
       }) =>
         progressOperation({
           kind: "move",
-          title: "正在移动 photo group",
+          title: "正在移动照片组",
           completed: groupsDone,
           total: totalGroups,
-          detail: `已移动 ${groupsDone} / ${totalGroups} 个 photo group；文件 ${filesDone} / ${totalFiles}。`,
+          detail: `已移动 ${groupsDone} / ${totalGroups} 个照片组；文件 ${filesDone} / ${totalFiles}。`,
         }),
     });
     applyScan(workspace.current);
     completeOperation({
       kind: "move",
-      title: "已移动到可恢复 review batch",
-      detail: `${groupCount} 个 photo group 可随时从“已移动”恢复。`,
+      title: "已移动到可恢复批次",
+      detail: `${groupCount} 个照片组 可随时从“已移动”恢复。`,
     });
   } catch (error) {
     reconcileFileOperationError();
@@ -838,10 +917,10 @@ async function restoreBatch(batchId) {
   setFolderActionsBusy(true);
   progressOperation({
     kind: "restore",
-    title: "正在恢复 review batch",
+    title: "正在恢复 可恢复批次",
     completed: 0,
     total: Math.max(groupCount, 1),
-    detail: `已恢复 0 / ${groupCount} 个 photo group；文件 0 / ${fileCount}。`,
+    detail: `已恢复 0 / ${groupCount} 个照片组；文件 0 / ${fileCount}。`,
   });
   try {
     if (!await flushReview()) {
@@ -853,17 +932,17 @@ async function restoreBatch(batchId) {
       onProgress: ({ filesDone, fileCount: totalFiles, groupsDone, groupCount: totalGroups }) =>
         progressOperation({
           kind: "restore",
-          title: "正在恢复 review batch",
+          title: "正在恢复 可恢复批次",
           completed: groupsDone,
           total: totalGroups,
-          detail: `已恢复 ${groupsDone} / ${totalGroups} 个 photo group；文件 ${filesDone} / ${totalFiles}。`,
+          detail: `已恢复 ${groupsDone} / ${totalGroups} 个照片组；文件 ${filesDone} / ${totalFiles}。`,
         }),
     });
     applyScan(workspace.current);
     completeOperation({
       kind: "restore",
-      title: "已恢复 review batch",
-      detail: `${groupCount} 个 photo group 已回到原照片文件夹。`,
+      title: "已恢复 可恢复批次",
+      detail: `${groupCount} 个照片组 已回到原照片文件夹。`,
     });
   } catch (error) {
     reconcileFileOperationError();
@@ -883,10 +962,10 @@ async function restoreGroup(batchId, groupId) {
   setFolderActionsBusy(true);
   progressOperation({
     kind: "restore",
-    title: "正在恢复 photo group",
+    title: "正在恢复照片组",
     completed: 0,
     total: 1,
-    detail: `已恢复 0 / 1 个 photo group；文件 0 / ${fileCount}。`,
+    detail: `已恢复 0 / 1 个照片组；文件 0 / ${fileCount}。`,
   });
   try {
     if (!await flushReview()) {
@@ -898,17 +977,17 @@ async function restoreGroup(batchId, groupId) {
       onProgress: ({ filesDone, fileCount: totalFiles }) =>
         progressOperation({
           kind: "restore",
-          title: "正在恢复 photo group",
+          title: "正在恢复照片组",
           completed: filesDone === totalFiles ? 1 : 0,
           total: 1,
-          detail: `已恢复 ${filesDone === totalFiles ? 1 : 0} / 1 个 photo group；文件 ${filesDone} / ${totalFiles}。`,
+          detail: `已恢复 ${filesDone === totalFiles ? 1 : 0} / 1 个照片组；文件 ${filesDone} / ${totalFiles}。`,
         }),
     });
     applyScan(workspace.current);
     completeOperation({
       kind: "restore",
-      title: "已恢复 photo group",
-      detail: "完整 photo group 已回到原照片文件夹。",
+      title: "已恢复照片组",
+      detail: "完整 照片组 已回到原照片文件夹。",
     });
   } catch (error) {
     reconcileFileOperationError();
@@ -981,6 +1060,11 @@ elements["viewer-zoom-reset"].addEventListener("click", () => {
   applyViewerZoom();
 });
 const viewerFrame = elements["viewer-image-frame"];
+new ResizeObserver(() => {
+  if (!gallery?.viewer || !viewerZoom.hasImage()) return;
+  viewerZoom.resize(viewerFrame.clientWidth, viewerFrame.clientHeight);
+  applyViewerZoom();
+}).observe(viewerFrame);
 viewerFrame.addEventListener(
   "wheel",
   (event) => {
@@ -1076,7 +1160,7 @@ document.addEventListener("keydown", (event) => {
       return;
     event.preventDefault();
     const next = nextUnreviewed();
-    if (!next) setInteractionStatus("没有下一个未筛的 photo group。");
+    if (!next) setInteractionStatus("没有下一个未筛的 照片组。");
     else if (gallery.visibleIndexOf(next.id) >= 0)
       gallery.goTo(next.id);
     else
@@ -1108,14 +1192,20 @@ document.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("beforeunload", (event) => {
-  if (reviewSaveQueue?.pending || reviewSaveQueue?.error) {
+  if (positionTimer !== null || reviewSaveQueue?.pending || reviewSaveQueue?.error) {
     event.preventDefault();
     event.returnValue = "";
   }
 });
 window.addEventListener("pagehide", (event) => {
   if (event.persisted) return;
+  clearTimeout(positionTimer);
+  positionTimer = null;
   clearUrls();
   analyzer.close();
   void reviewStore.close();
 });
+
+window.addEventListener("scroll", () => {
+  if (state && !gallery?.viewer) updateReviewPosition({ scrollY: Math.max(0, window.scrollY) });
+}, { passive: true });
