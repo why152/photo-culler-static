@@ -26,4 +26,10 @@ Photo viewer navigation, review decision and undo, viewer-position restoration, 
 
 A separate exact-pair acceptance confirmed that the copied JPEG and RW2 share a stem, the confirmation names one photo group and two files, and the resulting review batch contains those two members plus its movement journal. Both moved members and both restored members matched their SHA-256 hashes; both corresponding source-file hashes remained unchanged. This tests complete paired membership in OPFS, not native-file moves.
 
-Local raw results are retained in ignored `output/real-acceptance.json` and `output/real-pair-acceptance.json`; they are not uploaded as photo artifacts. Deployment is tracked separately under `.scratch/real-directory-release/` and was still pending when this acceptance record was written.
+Local raw results are retained in ignored `output/real-acceptance.json` and `output/real-pair-acceptance.json`; they are not uploaded as photo artifacts. Deployment is tracked separately under `.scratch/real-directory-release/`.
+
+## Release verification
+
+On 2026-11-08, application revision `04f9b6d743df512f077a8a4e85aba7c7b82072f7` was published successfully by [GitHub Pages workflow 42475688418](https://github.com/why152/photo-culler-static/actions/runs/42475688418) to [the HTTPS site](https://why152.github.io/photo-culler-static/). All 12 checked core HTML, JavaScript and CSS resources returned HTTP 200 and had SHA-256 values identical to the verified local application revision.
+
+A separate Chrome smoke test against that live site used three generated JPEG photo groups, rather than private source photos. Analysis, the full-resolution Photo viewer, and review decision/undo passed with no renderer errors. The resource checks and live-site smoke result are retained in ignored `output/pages-verification.json` and `output/pages-smoke.json`. This confirms the deployed application and basic live-site flow; it does not extend the isolated real-directory test to native-picker or native-file-movement coverage.
