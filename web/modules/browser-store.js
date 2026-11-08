@@ -271,6 +271,7 @@ export class BrowserReviewStore {
       throw new Error("图像分析缓存需要有效的算法版本。");
     const directoryId = await this.#directoryId(directory);
     return {
+      cachedFiles: (files) => this.#cachedFiles(files, directoryId, algorithmVersion),
       loadAnalysis: (file) => this.#loadScopedAnalysis(file, directoryId, algorithmVersion),
       saveAnalysis: (file, analysis) => this.#saveScopedAnalysis(file, analysis, directoryId, algorithmVersion),
     };
@@ -291,6 +292,24 @@ export class BrowserReviewStore {
     const cached = await this.read(ANALYSIS_STORE, fileKey(directoryId, algorithmVersion, file));
     return isAnalysisCacheRecord(cached) && cached.directoryId === directoryId &&
       cached.algorithmVersion === algorithmVersion ? cached.analysis : null;
+  }
+
+  async #cachedFiles(files, directoryId, algorithmVersion) {
+    const database = await this.database;
+    const transaction = database.transaction(ANALYSIS_STORE, "readonly");
+    const done = transactionDone(transaction);
+    // Read only bounded cache keys, never all cached thumbnail Blobs. The
+    // snapshot is an admission hint; loadAnalysis still validates each record.
+    const keys = new Set(await requestAsPromise(
+      transaction.objectStore(ANALYSIS_STORE).getAllKeys(),
+    ));
+    await done;
+    return {
+      files: new Set(files.filter((file) => keys.has(fileKey(directoryId, algorithmVersion, file)))),
+      // Capacity belongs to the entire store, including other directories and
+      // algorithm versions, not just this snapshot's matching files.
+      availableSlots: Math.max(0, this.analysisCacheLimit - keys.size),
+    };
   }
 
   async #saveScopedAnalysis(file, analysis, directoryId, algorithmVersion) {

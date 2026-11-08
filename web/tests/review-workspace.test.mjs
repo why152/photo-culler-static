@@ -32,6 +32,65 @@ function directoryHandle(name, entries) {
   };
 }
 
+test("photo-group metadata reads are bounded and preserve sorted groups through out-of-order completion", async () => {
+  const pending = new Map();
+  const calls = [];
+  let maximum = 0;
+  const names = Array.from({ length: 13 }, (_, index) => `P${String(index).padStart(2, "0")}.JPG`);
+  const handles = names.map((name) => ({
+    kind: "file", name,
+    getFile() {
+      calls.push(name);
+      return new Promise((resolve) => {
+        pending.set(name, () => { pending.delete(name); resolve({ name }); });
+        maximum = Math.max(maximum, pending.size);
+      });
+    },
+  }));
+  const scan = scanPhotoGroups(directoryHandle("camera-import", handles.reverse()));
+  await new Promise(setImmediate);
+  assert.equal(pending.size, 4);
+  while (pending.size) {
+    [...pending.values()].reverse().forEach((resolve) => resolve());
+    await new Promise(setImmediate);
+  }
+  const groups = await scan;
+  assert.equal(maximum, 4);
+  assert.deepEqual(calls, names);
+  assert.deepEqual(groups.map((group) => group.analysisFile.name), names);
+  assert.equal(new Set(groups.map((group) => group.id)).size, names.length);
+});
+
+test("photo-group metadata failure stops scheduling and propagates the filesystem error", async () => {
+  const pending = [];
+  const calls = [];
+  const error = new DOMException("Permission revoked", "NotAllowedError");
+  const handles = Array.from({ length: 12 }, (_, index) => ({
+    kind: "file", name: `P${String(index).padStart(2, "0")}.JPG`,
+    getFile() {
+      calls.push(this.name);
+      return new Promise((resolve, reject) => pending.push({ resolve, reject }));
+    },
+  }));
+  const scan = scanPhotoGroups(directoryHandle("camera-import", handles));
+  const rejection = assert.rejects(scan, (actual) => actual === error);
+  await new Promise(setImmediate);
+  assert.equal(calls.length, 4);
+  pending[0].reject(error);
+  await rejection;
+  pending[1].reject(new Error("Another in-flight read failed"));
+  pending.slice(2).forEach(({ resolve }) => resolve({}));
+  await new Promise(setImmediate);
+  assert.equal(calls.length, 4);
+});
+
+test("photo-group metadata scanning handles empty and companion-only directories", async () => {
+  assert.deepEqual(await scanPhotoGroups(directoryHandle("empty", [])), []);
+  const companion = fileHandle("P01.RW2");
+  companion.getFile = () => { throw new Error("Companion metadata should not be read"); };
+  assert.deepEqual(await scanPhotoGroups(directoryHandle("raw-only", [companion])), []);
+});
+
 test("Review Workspace selects only JPEG-first photo groups from an ordinary directory", async () => {
   const source = directoryHandle("camera-import", [
     fileHandle("P1000001.JPG", { size: 101, lastModified: 11 }),

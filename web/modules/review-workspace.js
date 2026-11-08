@@ -277,10 +277,24 @@ export async function scanPhotoGroups(directory) {
       stem,
       members,
       analysisHandle,
-      analysisFile: await analysisHandle.getFile(),
       hasRaw: members.some((member) => extensionOf(member.name) === ".rw2"),
     });
   }
+  // File metadata crosses the browser filesystem boundary. Bound outstanding
+  // reads while keeping the sorted photo-group order independent of completion.
+  let next = 0;
+  let failed = false;
+  await Promise.all(Array.from({ length: Math.min(4, groups.length) }, async () => {
+    while (!failed && next < groups.length) {
+      const group = groups[next++];
+      try {
+        group.analysisFile = await group.analysisHandle.getFile();
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  }));
   return groups;
 }
 

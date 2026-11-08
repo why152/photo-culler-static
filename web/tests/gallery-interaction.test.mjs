@@ -189,3 +189,32 @@ test("cached queue and group lookup see analysis changes through stable object r
   assert.equal(visible[0].analysis.technicalScore, 91);
   assert.equal(gallery.photoGroup("one"), group);
 });
+
+test("all photo groups retain their queue and positions through decision edits, undo, and replacement", () => {
+  let idReads = 0;
+  const groups = Array.from({ length: 5000 }, (_, index) => ({
+    get id() { idReads += 1; return `group:${index}`; },
+  }));
+  const decisions = {};
+  const gallery = new GalleryInteraction({ photoGroups: groups, decisions });
+  const visible = gallery.visiblePhotoGroups();
+  gallery.open("group:2000");
+  const indexedReads = idReads;
+  for (let index = 0; index < 100; index += 1) {
+    decisions[`group:${index}`] = "keep";
+    gallery.invalidateDecisions();
+    assert.equal(gallery.visiblePhotoGroups(), visible);
+    delete decisions[`group:${index}`];
+    gallery.update({ decisionsChanged: true });
+    assert.equal(gallery.visibleIndexOf("group:2000"), 2000);
+  }
+  const replacement = { "group:2000": "pick" };
+  gallery.update({ decisions: replacement });
+  assert.equal(gallery.visiblePhotoGroups(), visible);
+  assert.equal(idReads, indexedReads);
+  gallery.update({ filter: "pick" });
+  assert.deepEqual(gallery.visiblePhotoGroups().map(({ id }) => id), ["group:2000"]);
+  gallery.update({ decisions: {} });
+  assert.equal(gallery.viewer, null);
+  assert.deepEqual(gallery.visiblePhotoGroups(), []);
+});

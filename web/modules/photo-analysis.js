@@ -108,6 +108,28 @@ export class BrowserPhotoAnalyzer {
         try { cache = directory ? await waitUnlessAborted(cache.analysisScope(directory), controller.signal) : null; }
         catch { throwIfAborted(controller.signal); cache = null; scopeFailed = true; }
       }
+      let protectedFiles = new Set();
+      let availableSlots = 0;
+      let snapshotFailed = false;
+      if (cache?.cachedFiles && photoGroups.length) {
+        // A cancelled run may still have bounded writes in flight. Finish those
+        // before taking this run's snapshot so they cannot evict its future hits.
+        await waitUnlessAborted(Promise.all(this.cacheWrites), controller.signal);
+        try {
+          const snapshot = await waitUnlessAborted(
+            cache.cachedFiles(photoGroups.map((group) => group.analysisFile)), controller.signal,
+          );
+          // Set-only cache adapters can still provide a conservative hint.
+          const files = snapshot instanceof Set ? snapshot : snapshot?.files;
+          if (!(files instanceof Set)) throw new Error("图像缓存快照无效。");
+          protectedFiles = files;
+          if (Number.isInteger(snapshot.availableSlots) && snapshot.availableSlots > 0)
+            availableSlots = snapshot.availableSlots;
+        } catch {
+          throwIfAborted(controller.signal);
+          snapshotFailed = true;
+        }
+      }
       const analyzed = new Map();
       const remaining = new Map(photoGroups.map((group) => [group.id, group]));
       const runWrites = new Set();
@@ -125,12 +147,15 @@ export class BrowserPhotoAnalyzer {
         const timing = new AnalysisTiming(Boolean(this.onDiagnostics));
         let workerTimings = null;
         const cacheErrors = scopeFailed ? ["scope"] : [];
+        if (snapshotFailed) cacheErrors.push("snapshot");
         throwIfAborted(controller.signal);
         let cached = null;
         try { cached = await timing.measureAsync("cacheRead", () => cache?.loadAnalysis
           ? waitUnlessAborted(Promise.resolve(cache.loadAnalysis(group.analysisFile)), controller.signal) : undefined); }
         catch { throwIfAborted(controller.signal); cacheErrors.push("read"); }
         throwIfAborted(controller.signal);
+        // Consume the hint even if a record disappeared or failed validation.
+        protectedFiles.delete(group.analysisFile);
         let previewThumbnail = null;
         const emitPreview = onPreview ? (thumbnail) => {
           if (!controller.signal.aborted && thumbnail) {
@@ -158,7 +183,14 @@ export class BrowserPhotoAnalyzer {
             ...workerTimings, ...timing.finish(), workerTotal: workerTimings?.total ?? null,
           } });
         };
-        if (!cached && cache?.saveAnalysis) {
+        // In an over-capacity directory, inserting an early miss would evict a
+        // later hit and turn a sequential reopen into another full cold scan.
+        // Admit into genuinely free slots first; otherwise skip the write
+        // rather than queueing thumbnails without a bound.
+        if (!cached && cache?.saveAnalysis && (!protectedFiles.size || availableSlots > 0)) {
+          // Reserve before starting the asynchronous write so concurrent writes
+          // cannot both consume the same free slot.
+          availableSlots = Math.max(0, availableSlots - 1);
           const write = (async () => {
             try { await timing.measureAsync("cacheWrite", () => cache.saveAnalysis(group.analysisFile, analysis)); }
             catch { cacheErrors.push("write"); }

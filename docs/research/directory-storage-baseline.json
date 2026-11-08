@@ -1,0 +1,66 @@
+{
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+  "fixture": "32 byte files, 8 KiB synthetic thumbnail blobs, setup excluded, OPFS; scan isolates getFile with in-memory enumeration",
+  "results": [
+    {
+      "count": 500,
+      "round": 0,
+      "scanMs": 37.40000000037253,
+      "cacheReadMs": 37
+    },
+    {
+      "count": 500,
+      "round": 1,
+      "scanMs": 33,
+      "cacheReadMs": 37.200000000186265
+    },
+    {
+      "count": 500,
+      "round": 2,
+      "scanMs": 41.39999999944121,
+      "cacheReadMs": 37.30000000074506
+    },
+    {
+      "count": 500,
+      "round": 3,
+      "scanMs": 35.299999999813735,
+      "cacheReadMs": 36.89999999944121
+    },
+    {
+      "count": 500,
+      "round": 4,
+      "scanMs": 36.700000000186265,
+      "cacheReadMs": 38.299999999813735
+    },
+    {
+      "count": 2000,
+      "round": 0,
+      "scanMs": 141.80000000074506,
+      "cacheReadMs": 147.5
+    },
+    {
+      "count": 2000,
+      "round": 1,
+      "scanMs": 141.3999999994412,
+      "cacheReadMs": 272
+    },
+    {
+      "count": 2000,
+      "round": 2,
+      "scanMs": 141.6000000005588,
+      "cacheReadMs": 144.19999999925494
+    },
+    {
+      "count": 2000,
+      "round": 3,
+      "scanMs": 139.80000000074506,
+      "cacheReadMs": 206.69999999925494
+    },
+    {
+      "count": 2000,
+      "round": 4,
+      "scanMs": 147.70000000018626,
+      "cacheReadMs": 186.6000000005588
+    }
+  ]
+}

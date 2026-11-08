@@ -73,7 +73,7 @@ export class GalleryInteraction {
   // Review decisions can be edited in place; callers explicitly invalidate
   // after a decision or undo, without rescanning on ordinary navigation.
   invalidateDecisions() {
-    this.#visible = null;
+    if (this.filter !== "all") this.#visible = null;
   }
 
   // Membership/order changes must supply a new photoGroups array. Analysis
@@ -87,7 +87,7 @@ export class GalleryInteraction {
   } = {}) {
     const membershipChanged = photoGroups !== this.photoGroups;
     const visibilityChanged = membershipChanged || filter !== this.filter ||
-      decisions !== this.decisions || decisionsChanged;
+      (filter !== "all" && (decisions !== this.decisions || decisionsChanged));
     this.photoGroups = photoGroups;
     this.filter = filter;
     this.decisions = decisions;

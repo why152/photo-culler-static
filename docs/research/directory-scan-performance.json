@@ -1,0 +1,290 @@
+{
+  "measuredAt": "2026-11-07T12:36:49.025Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+  "baselineCommit": "0bcb619",
+  "concurrency": 4,
+  "rounds": 5,
+  "fixture": "Synthetic 32-byte JPEG-named OPFS files; no decoding. Creation and warm-up excluded. Two scan variants alternate order each round in one browser session.",
+  "results": [
+    {
+      "count": 500,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 0,
+      "variant": "sequential",
+      "milliseconds": 32.89999999990687
+    },
+    {
+      "count": 500,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 0,
+      "variant": "bounded",
+      "milliseconds": 12.299999999813735
+    },
+    {
+      "count": 500,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 1,
+      "variant": "bounded",
+      "milliseconds": 12
+    },
+    {
+      "count": 500,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 1,
+      "variant": "sequential",
+      "milliseconds": 36.799999999813735
+    },
+    {
+      "count": 500,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 2,
+      "variant": "sequential",
+      "milliseconds": 34.200000000186265
+    },
+    {
+      "count": 500,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 2,
+      "variant": "bounded",
+      "milliseconds": 11.899999999906868
+    },
+    {
+      "count": 500,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 3,
+      "variant": "bounded",
+      "milliseconds": 11.5
+    },
+    {
+      "count": 500,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 3,
+      "variant": "sequential",
+      "milliseconds": 39.39999999990687
+    },
+    {
+      "count": 500,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 4,
+      "variant": "sequential",
+      "milliseconds": 35.700000000186265
+    },
+    {
+      "count": 500,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 4,
+      "variant": "bounded",
+      "milliseconds": 11.800000000279397
+    },
+    {
+      "count": 500,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 0,
+      "variant": "sequential",
+      "milliseconds": 33.09999999962747
+    },
+    {
+      "count": 500,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 0,
+      "variant": "bounded",
+      "milliseconds": 14.800000000279397
+    },
+    {
+      "count": 500,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 1,
+      "variant": "bounded",
+      "milliseconds": 15.5
+    },
+    {
+      "count": 500,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 1,
+      "variant": "sequential",
+      "milliseconds": 39.90000000037253
+    },
+    {
+      "count": 500,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 2,
+      "variant": "sequential",
+      "milliseconds": 33.59999999962747
+    },
+    {
+      "count": 500,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 2,
+      "variant": "bounded",
+      "milliseconds": 13.399999999906868
+    },
+    {
+      "count": 500,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 3,
+      "variant": "bounded",
+      "milliseconds": 15.800000000279397
+    },
+    {
+      "count": 500,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 3,
+      "variant": "sequential",
+      "milliseconds": 38
+    },
+    {
+      "count": 500,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 4,
+      "variant": "sequential",
+      "milliseconds": 39.10000000009313
+    },
+    {
+      "count": 500,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 4,
+      "variant": "bounded",
+      "milliseconds": 15
+    },
+    {
+      "count": 2000,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 0,
+      "variant": "sequential",
+      "milliseconds": 498.8000000002794
+    },
+    {
+      "count": 2000,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 0,
+      "variant": "bounded",
+      "milliseconds": 90
+    },
+    {
+      "count": 2000,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 1,
+      "variant": "bounded",
+      "milliseconds": 64.10000000009313
+    },
+    {
+      "count": 2000,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 1,
+      "variant": "sequential",
+      "milliseconds": 189.3000000002794
+    },
+    {
+      "count": 2000,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 2,
+      "variant": "sequential",
+      "milliseconds": 182.20000000018626
+    },
+    {
+      "count": 2000,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 2,
+      "variant": "bounded",
+      "milliseconds": 78.89999999990687
+    },
+    {
+      "count": 2000,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 3,
+      "variant": "bounded",
+      "milliseconds": 76.89999999990687
+    },
+    {
+      "count": 2000,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 3,
+      "variant": "sequential",
+      "milliseconds": 168
+    },
+    {
+      "count": 2000,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 4,
+      "variant": "sequential",
+      "milliseconds": 171.20000000018626
+    },
+    {
+      "count": 2000,
+      "mode": "metadata-with-in-memory-enumeration",
+      "round": 4,
+      "variant": "bounded",
+      "milliseconds": 73.5
+    },
+    {
+      "count": 2000,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 0,
+      "variant": "sequential",
+      "milliseconds": 172.90000000037253
+    },
+    {
+      "count": 2000,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 0,
+      "variant": "bounded",
+      "milliseconds": 73.5
+    },
+    {
+      "count": 2000,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 1,
+      "variant": "bounded",
+      "milliseconds": 74.39999999990687
+    },
+    {
+      "count": 2000,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 1,
+      "variant": "sequential",
+      "milliseconds": 155.39999999990687
+    },
+    {
+      "count": 2000,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 2,
+      "variant": "sequential",
+      "milliseconds": 210.39999999990687
+    },
+    {
+      "count": 2000,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 2,
+      "variant": "bounded",
+      "milliseconds": 86.10000000009313
+    },
+    {
+      "count": 2000,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 3,
+      "variant": "bounded",
+      "milliseconds": 65.3000000002794
+    },
+    {
+      "count": 2000,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 3,
+      "variant": "sequential",
+      "milliseconds": 157.39999999990687
+    },
+    {
+      "count": 2000,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 4,
+      "variant": "sequential",
+      "milliseconds": 153.20000000018626
+    },
+    {
+      "count": 2000,
+      "mode": "full-opfs-directory-enumeration",
+      "round": 4,
+      "variant": "bounded",
+      "milliseconds": 61
+    }
+  ]
+}

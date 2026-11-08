@@ -346,3 +346,63 @@ test("the version-one unscoped analysis cache is invalidated on migration", asyn
 
   expect(result).toBeNull();
 });
+
+test("viewer navigation leaves grid details untouched while decisions still refresh them", async ({ page }) => {
+  await preparePhotoSource(page, `photo-culler-navigation-${crypto.randomUUID()}`, 12);
+  await page.getByRole("button", { name: "选择照片文件夹" }).click();
+  await expect(page.getByRole("status", { name: "操作进度", exact: true })).toContainText("照片分析完成");
+  await page.getByRole("button", { name: "选择 P5000001.JPG", exact: true }).click();
+  await page.getByRole("button", { name: "选择 P5000004.JPG", exact: true }).click({ modifiers: ["Shift"] });
+  await expect(page.locator("#action-selection-count")).toContainText("已选 4 个照片组");
+  await page.locator('[id="photo-card:photo-group:P5000001"]').click();
+  await expect(page.locator("#viewer-position")).toHaveText("1 / 12");
+  await page.evaluate(async () => {
+    window.__gridDetailWrites = 0;
+    window.__selectionSorts = 0;
+    const { GalleryInteraction } = await import("./modules/gallery-interaction.js");
+    const selected = GalleryInteraction.prototype.selectedPhotoGroupIds;
+    GalleryInteraction.prototype.selectedPhotoGroupIds = function (...args) {
+      window.__selectionSorts += 1;
+      return selected.apply(this, args);
+    };
+    window.__gridObserver = new MutationObserver((records) => {
+      window.__gridDetailWrites += records.filter(({ type }) => type === "childList").length;
+    });
+    window.__gridObserver.observe(document.querySelector("#photo-grid"), { subtree: true, childList: true });
+  });
+  for (let index = 0; index < 10; index++) {
+    await page.keyboard.press("ArrowRight");
+    await expect(page.locator("#viewer-position")).toHaveText("2 / 12");
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.locator("#viewer-position")).toHaveText("1 / 12");
+  }
+  await page.keyboard.press("j");
+  await expect(page.locator("#viewer-position")).toHaveText("2 / 12");
+  await page.locator('#viewer-filmstrip [data-photo-group-id="photo-group:P5000004"]').click();
+  await expect(page.locator("#viewer-position")).toHaveText("4 / 12");
+  expect(await page.evaluate(() => window.__gridDetailWrites)).toBe(0);
+  await page.keyboard.press("2");
+  await expect(page.locator('[id="photo-card:photo-group:P5000004"] .review-decision')).toHaveText("保留");
+  await expect(page.locator("#review-count")).toContainText("已筛 1 / 12");
+  await page.keyboard.press("u");
+  await expect(page.locator('[id="photo-card:photo-group:P5000004"] .review-decision')).toHaveCount(0);
+  await expect(page.locator("#review-count")).toContainText("已筛 0 / 12");
+  await expect(page.locator("#action-selection-count")).toContainText("已选 4 个照片组");
+  expect(await page.evaluate(() => window.__selectionSorts)).toBe(0);
+  await page.getByRole("button", { name: "关闭大图" }).click();
+  await expect(page.locator('[id="photo-card:photo-group:P5000001"]')).toBeFocused();
+  // Decision-dependent filters still rebuild their queue and close a viewer
+  // whose final member is no longer visible.
+  await page.locator('[data-filter="unreviewed"]').click();
+  await page.locator('[id="photo-card:photo-group:P5000001"]').click();
+  await page.keyboard.press("2");
+  await expect(page.locator("#viewer-position")).toHaveText("1 / 11");
+  await expect(page.locator('[id="photo-card:photo-group:P5000001"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "关闭大图" }).click();
+  await page.locator('[data-filter="keep"]').click();
+  await page.locator('[id="photo-card:photo-group:P5000001"]').click();
+  await page.keyboard.press("0");
+  await expect(page.locator("#photo-viewer")).toBeHidden();
+  await expect(page.locator(".photo-card")).toHaveCount(0);
+  expect(await page.evaluate(() => window.__selectionSorts)).toBe(0);
+});

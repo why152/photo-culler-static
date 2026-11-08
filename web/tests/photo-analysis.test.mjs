@@ -233,14 +233,14 @@ test("namespace failure degrades to fresh analysis and diagnostic observer error
   } finally { analyzer.close(); }
 });
 
-test("directory cancellation does not wait for a blocked cache namespace or read", async () => {
-  for (const stage of ["scope","read"]) {
+test("directory cancellation does not wait for a blocked cache namespace, snapshot or read", async () => {
+  for (const stage of ["scope","snapshot","read"]) {
     let entered;
     const started = new Promise((resolve)=>{entered=resolve;});
     const blocked = async()=>{entered();await new Promise(()=>{});};
     const controller = new AbortController();
     const analyzer = new BrowserPhotoAnalyzer({workerFactory:()=>new FakeWorker(),cache:stage==="scope"
-      ? {analysisScope:blocked} : {loadAnalysis:blocked}});
+      ? {analysisScope:blocked} : stage === "snapshot" ? {cachedFiles:blocked} : {loadAnalysis:blocked}});
     try {
       const result=analyzer.analyze([photoGroup("blocked")],{directory:{},signal:controller.signal});
       result.catch(()=>{});
@@ -250,3 +250,164 @@ test("directory cancellation does not wait for a blocked cache namespace or read
   }
 });
 
+
+class ImmediateWorker extends FakeWorker {
+  postMessage(message) {
+    super.postMessage(message);
+    queueMicrotask(() => this.emit(this.messages.length - 1, {
+      result: { status: "keep", thumbnail: null },
+    }));
+  }
+}
+
+test("over-capacity scans retain future cache hits without changing visible priority or buffering misses", async () => {
+  const groups = ["a", "b", "c"].map(photoGroup);
+  const entries = new Map(groups.slice(1).map(({ analysisFile }) => [analysisFile.name, { status: "keep" }]));
+  const worker = new ImmediateWorker();
+  const writes = [];
+  const cache = {
+    cachedFiles: async (files) => new Set(files.filter((file) => entries.has(file.name))),
+    loadAnalysis: async (file) => entries.get(file.name) ?? null,
+    saveAnalysis: async (file, analysis) => {
+      writes.push(file.name);
+      entries.set(file.name, analysis);
+      while (entries.size > 2) entries.delete(entries.keys().next().value);
+    },
+  };
+  const analyzer = new BrowserPhotoAnalyzer({ cache, workerFactory: () => worker });
+  try {
+    for (let run = 0; run < 3; run++) {
+      const resultOrder = [];
+      const result = await analyzer.analyze(groups, {
+        getPriority: () => ["a", "c"],
+        onResult: (group) => resultOrder.push(group.id),
+      });
+      assert.deepEqual(resultOrder, ["a", "c", "b"]);
+      assert.deepEqual(result.map(({ id }) => id), ["a", "b", "c"]);
+    }
+    assert.deepEqual(worker.messages.map(({ file }) => file.name), ["a.JPG", "a.JPG", "a.JPG"]);
+    assert.deepEqual(writes, []);
+    assert.equal(entries.size, 2);
+    // Once all snapshot hits have been consumed, later misses can be admitted.
+    await analyzer.analyze([...groups, photoGroup("d")], { getPriority: () => ["c", "b"] });
+    assert.deepEqual(writes, ["a.JPG", "d.JPG"]);
+    assert.equal(entries.size, 2);
+  } finally { analyzer.close(); }
+});
+
+test("failed or stale cache snapshots do not block recomputation and cache admission", async () => {
+  for (const fails of [false, true]) {
+    const groups = [photoGroup("stale")];
+    const writes = [];
+    const diagnostics = [];
+    const analyzer = new BrowserPhotoAnalyzer({ workerFactory: () => new ImmediateWorker(),
+      onDiagnostics: (record) => diagnostics.push(record),
+      cache: {
+        cachedFiles: async (files) => {
+          if (fails) throw new Error("snapshot unavailable");
+          return new Set(files);
+        },
+        loadAnalysis: async () => null,
+        saveAnalysis: async (file) => writes.push(file.name),
+      },
+    });
+    try {
+      assert.equal((await analyzer.analyze(groups))[0].analysis.status, "keep");
+      assert.deepEqual(writes, ["stale.JPG"]);
+      assert.deepEqual(diagnostics[0].cacheErrors, fails ? ["snapshot"] : []);
+    } finally { analyzer.close(); }
+  }
+});
+
+test("cache snapshots wait for superseded writes and waiting remains abortable", async () => {
+  const snapshots = [];
+  const entries = new Map();
+  let releaseWrite;
+  const analyzer = new BrowserPhotoAnalyzer({ workerFactory: () => new ImmediateWorker(),
+    cache: {
+      cachedFiles: async (files) => {
+        snapshots.push([...entries.keys()]);
+        return new Set(files.filter((file) => entries.has(file.name)));
+      },
+      loadAnalysis: async (file) => entries.get(file.name) ?? null,
+      saveAnalysis: async (file, analysis) => {
+        await new Promise((resolve) => { releaseWrite = resolve; });
+        entries.set(file.name, analysis);
+      },
+    },
+  });
+  const first = analyzer.analyze([photoGroup("same")]);
+  first.catch(() => {});
+  try {
+    while (!releaseWrite) await new Promise(setImmediate);
+    const controller = new AbortController();
+    const second = analyzer.analyze([photoGroup("same")], { signal: controller.signal });
+    second.catch(() => {});
+    await assert.rejects(first, { name: "AbortError" });
+    await new Promise(setImmediate);
+    assert.deepEqual(snapshots, [[]]);
+    controller.abort();
+    await assert.rejects(second, { name: "AbortError" });
+    releaseWrite();
+    const third = await analyzer.analyze([photoGroup("same")]);
+    assert.deepEqual(snapshots, [[], ["same.JPG"]]);
+    assert.equal(third[0].analysis.status, "keep");
+  } finally { releaseWrite?.(); analyzer.close(); }
+});
+
+test("partially filled caches admit early misses into free slots and reuse them on reopen", async () => {
+  const groups = ["a", "b", "c"].map(photoGroup);
+  const entries = new Map([["c.JPG", { status: "keep" }]]);
+  const worker = new ImmediateWorker();
+  const writes = [];
+  const cache = {
+    cachedFiles: async (files) => ({
+      files: new Set(files.filter((file) => entries.has(file.name))),
+      availableSlots: Math.max(0, 3 - entries.size),
+    }),
+    loadAnalysis: async (file) => entries.get(file.name) ?? null,
+    saveAnalysis: async (file, analysis) => {
+      writes.push(file.name);
+      entries.set(file.name, analysis);
+      while (entries.size > 3) entries.delete(entries.keys().next().value);
+    },
+  };
+  const analyzer = new BrowserPhotoAnalyzer({ cache, workerFactory: () => worker });
+  try {
+    await analyzer.analyze(groups);
+    assert.deepEqual(writes, ["a.JPG", "b.JPG"]);
+    assert.deepEqual(worker.messages.map(({ file }) => file.name), ["a.JPG", "b.JPG"]);
+    await analyzer.analyze(groups);
+    assert.deepEqual(worker.messages.map(({ file }) => file.name), ["a.JPG", "b.JPG"]);
+    assert.equal(entries.size, 3);
+  } finally { analyzer.close(); }
+});
+
+test("pending cache writes reserve free capacity before later misses can consume it", async () => {
+  const groups = ["a", "b", "c"].map(photoGroup);
+  const entries = new Map([["c.JPG", { status: "keep" }]]);
+  const writes = [];
+  let release;
+  const worker = new ImmediateWorker();
+  const analyzer = new BrowserPhotoAnalyzer({ workerFactory: () => worker, cache: {
+    cachedFiles: async (files) => ({
+      files: new Set(files.filter((file) => entries.has(file.name))), availableSlots: 1,
+    }),
+    loadAnalysis: async (file) => entries.get(file.name) ?? null,
+    saveAnalysis: async (file, analysis) => {
+      writes.push(file.name);
+      await new Promise((resolve) => { release = resolve; });
+      entries.set(file.name, analysis);
+    },
+  } });
+  const completed = [];
+  const run = analyzer.analyze(groups, { onResult: (group) => completed.push(group.id) });
+  try {
+    while (completed.length < 3) await new Promise(setImmediate);
+    assert.deepEqual(writes, ["a.JPG"]);
+    assert.deepEqual(completed, ["a", "b", "c"]);
+    release();
+    await run;
+    assert.equal(entries.size, 2);
+  } finally { release?.(); analyzer.close(); await Promise.allSettled([run]); }
+});

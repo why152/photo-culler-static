@@ -337,7 +337,7 @@ const filmstripView = new FilmstripView({
   element: elements["viewer-filmstrip"],
   onNavigate: (photoGroupId) => {
     gallery.goTo(photoGroupId);
-    render();
+    renderViewer();
   },
 });
 function renderGrid() {
@@ -599,7 +599,7 @@ function renderControls() {
   elements["moved-count"].textContent = state.movedBatches.length;
   elements["moved-groups-button"].hidden = !state.movedBatches.length;
   elements["moved-groups-button"].disabled = !state.movedBatches.length;
-  const selectedCount = gallery.selectedPhotoGroupIds().length;
+  const selectedCount = gallery.actionSelection.size;
   const fileOperation = operationFeedback.state();
   const suggestedRemovals =
     state.filter === "reject" ? visibleGroups() : [];
@@ -651,7 +651,7 @@ function moveViewer(direction) {
         ? "已经是当前筛选结果中的最后一张照片。"
         : "已经是当前筛选结果中的第一张照片。",
     );
-  render();
+  renderViewer();
 }
 function closeViewer() {
   const returnTarget = gallery?.close();
@@ -1165,7 +1165,7 @@ document.addEventListener("keydown", (event) => {
       gallery.goTo(next.id);
     else
       setInteractionStatus("下一个未筛项不在当前筛选结果中；请先切换到“未筛”继续。");
-    render();
+    renderViewer();
   } else if (event.key === "1" && gallery?.viewer) decide("pick");
   else if (event.key === "2" && gallery?.viewer) decide("keep");
   else if (key === "x" && gallery?.viewer) decide("reject");
