@@ -51,6 +51,7 @@ let target = null,
   accepted = null,
   view = "import";
 let visibleCount = 0;
+let viewerFullscreen = false;
 let decisionHistory = new ReviewDecisionHistory();
 const chosen = new Set(),
   urls = new Set(),
@@ -705,7 +706,12 @@ async function compare(list) {
     };
   }
 }
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement) viewerFullscreen = false;
+});
 $("compare").addEventListener("close", () => {
+  if (viewerFullscreen && document.fullscreenElement)
+    void document.exitFullscreen();
   ++compareGeneration;
   zooms.length = 0;
   compared = [];
@@ -763,6 +769,11 @@ if (help) {
   keys.textContent =
     "快捷键：? 帮助；单图中 J/K 或方向键浏览，1 精选，2 保留，X 暂不导出，3 稍后复核，U 撤销，F 全屏，Esc 关闭。输入框中不触发快捷键。";
   help.append(keys);
+  const comparisonHelp = document.createElement("p");
+  comparisonHelp.id = "compare-shortcuts";
+  comparisonHelp.hidden = true;
+  comparisonHelp.textContent = keys.textContent;
+  $("compare").append(comparisonHelp);
 }
 document.addEventListener("keydown", (e) => {
   if (
@@ -772,10 +783,15 @@ document.addEventListener("keydown", (e) => {
     e.target.closest("input,select,textarea,[contenteditable=true]")
   )
     return;
+  if (document.getElementById("benchmark")?.open) return;
   if (e.key === "?") {
     e.preventDefault();
-    help.open = !help.open;
-    help.querySelector("summary").focus();
+    if ($("compare").open)
+      $("compare-shortcuts").hidden = !$("compare-shortcuts").hidden;
+    else {
+      help.open = !help.open;
+      help.querySelector("summary").focus();
+    }
     return;
   }
   if (!$("compare").open || busy) return;
@@ -791,14 +807,18 @@ document.addEventListener("keydown", (e) => {
   }
   if (key === "f") {
     e.preventDefault();
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else
-      void $("compare")
-        .requestFullscreen?.()
-        .catch(() => {});
+    if (viewerFullscreen && document.fullscreenElement)
+      void document.exitFullscreen();
+    else if (document.documentElement.requestFullscreen)
+      void document.documentElement.requestFullscreen().then(
+        () => {
+          viewerFullscreen = true;
+        },
+        () => message("浏览器未允许全屏，仍可继续比较与缩放。"),
+      );
     return;
   }
-  if (g && ["1", "2", "x", "3"].includes(key)) {
+  if (compared.length === 1 && g && ["1", "2", "x", "3"].includes(key)) {
     e.preventDefault();
     void decide(
       g,

@@ -261,10 +261,12 @@ summary:focus-visible {
   outline: 2px solid #e2c48b;
   outline-offset: 3px;
 }
-#compare:fullscreen {
+html:fullscreen #compare {
   width: 100vw;
   max-width: none;
   height: 100vh;
+  max-height: none;
+  margin: 0;
 }
 @media (prefers-reduced-motion: reduce) {
   *,

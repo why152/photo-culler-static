@@ -470,6 +470,18 @@ test("review shortcuts undo independently, narrow survey falls back, inputs keep
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
   await page.locator(".card img").first().click();
+  await page.keyboard.press("?");
+  await expect(page.locator("#compare-shortcuts")).toBeVisible();
+  await page.keyboard.press("?");
+  await expect(page.locator("#compare-shortcuts")).toBeHidden();
+  await page.keyboard.press("f");
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement?.tagName.toLowerCase()))
+    .toBe("html");
+  await page.keyboard.press("f");
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement === null))
+    .toBe(true);
   await page.keyboard.press("1");
   await expect(
     page

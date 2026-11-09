@@ -26,13 +26,13 @@ npm run dev
 
 Vite 8.3.6 只做静态打包，`web/ → dist/`；GitHub Pages base 固定 `/photo-culler-static/`。`test:dist` 包含 build 和真实子路径预览检查。旧测试仅更换到保留的 `legacy.html` 路由，并按冻结约束更新“只读权限”和“多会话不丢旧审核”两个旧合同。
 
-PR check 和 main 发布都必须通过 ci/check/test/build/dist 冒烟。发布只允许 main；本功能分支不会部署生产。详见 [验收记录与未完成矩阵](docs/photo-culler-2-validation.md)、[架构决定](docs/adr/0002-culler-2-sessions-and-copy.md)、[第三方许可](THIRD_PARTY_NOTICES.md)。
+PR check 和 main 发布都必须通过 ci/check/test/build/dist 冒烟。发布只允许 main；功能分支本身不部署生产。详见 [验收记录与未完成矩阵](docs/photo-culler-2-validation.md)、[架构决定](docs/adr/0002-culler-2-sessions-and-copy.md)、[第三方许可](THIRD_PARTY_NOTICES.md)。
 
 ## 限制
 
-当前是规则版 Beta 候选代码，不是 Stable。人像模型因遥测门槛未通过而不安装；embedding 无经过验证的小模型/收益数据，延期。连拍阈值尚无用户 S9 盲测，95% 召回与 70% 减少看片量均未验证。编辑版/裁剪、全景、艺术虚焦、表情与故事性不能可靠自动判定，请使用宽松推荐或全量复核。
+当前是规则版 Beta，不是 Stable。人像模型因遥测门槛未通过而不安装；embedding 无经过验证的小模型/收益数据，延期。连拍阈值尚无用户 S9 盲测，95% 召回与 70% 减少看片量均未验证。编辑版/裁剪、全景、艺术虚焦、表情与故事性不能可靠自动判定，请使用宽松推荐或全量复核。
 
-Mac Chrome 的自动测试使用隔离 OPFS 合成副本，不代表真实外部相机目录或 Windows Edge 验收。新流程不提供文件移动；旧页面仅允许已验证原生 OPFS 移动/恢复。外部目录历史批次仍可发现，无法安全恢复时明确报错并保持原样。权限拒绝、空间不足或冲突会中止，不覆盖不同内容。未完成输出保留已写字节和 journal；同页可下载记录，重新确认创建新输出目录。重开同一会话后可“继续上次中断导出”，重新授权输出并逐文件校验；已有不同内容或不完整文件冲突时停止，请选择新输出目录。
+Mac Chrome 包含隔离 OPFS 回归及一次真实系统目录选择器副本测试；Windows Edge 加入 CI，但尚未验证 Windows 原生目录、物理断电或外接设备拔出。详见 [原生复制记录](docs/research/culler-2-native-copy-acceptance.md)。新流程不提供文件移动；旧页面仅允许已验证原生 OPFS 移动/恢复。外部目录历史批次仍可发现，无法安全恢复时明确报错并保持原样。权限拒绝、空间不足或冲突会中止，不覆盖不同内容。未完成输出保留已写字节和 journal；同页可下载记录，重新确认创建新输出目录。重开同一会话后可“继续上次中断导出”，重新授权输出并逐文件校验；已有不同内容或不完整文件冲突时停止，请选择新输出目录。
 
 浏览器存储清理会失去会话，源照片与磁盘 journal 不受影响。项目尚无仓库级 LICENSE，不能替所有者新增授权；依赖许可证已保留。
 
