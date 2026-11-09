@@ -132,3 +132,11 @@ frozen beta.2: identical 75.26% automatic moment recall, 97.37% visible moment
 coverage including protected, 85 wanted frames folded. All 2466 original hashes,
 sizes, mtimes and file list unchanged; isolated profile removed. Quality target
 is not passed and Beta is retained.
+
+An additional Windows Edge repeat exposed the moved-preview test assuming the
+close action would finish inside a120ms artificial decode delay. The first decode
+is now held until after close, then released; the unchanged assertion verifies
+that no queued second decode starts. The focused11-test suite passes locally.
+This fixes the observation schedule rather than weakening cancellation behavior.
+Modal shortcut testing also caught unsupported dialog fullscreen: document-root
+fullscreen now enters/exits successfully; modal help remains visible in the modal.

@@ -222,9 +222,12 @@ test("closing the moved panel invalidates previews that have not started decodin
   await page.addInitScript(() => {
     const createImageBitmap = window.createImageBitmap.bind(window);
     window.__movedPreviewDecodeStarts = 0;
+    const decodeGate = new Promise((resolve) => {
+      window.__releaseMovedPreviewDecode = resolve;
+    });
     window.createImageBitmap = async (...args) => {
       window.__movedPreviewDecodeStarts += 1;
-      await new Promise((resolve) => setTimeout(resolve, 120));
+      await decodeGate;
       return createImageBitmap(...args);
     };
   });
@@ -248,6 +251,7 @@ test("closing the moved panel invalidates previews that have not started decodin
     .toBe(1);
 
   await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.evaluate(() => window.__releaseMovedPreviewDecode());
   await page.waitForTimeout(900);
   expect(await page.evaluate(() => window.__movedPreviewDecodeStarts)).toBe(1);
 });

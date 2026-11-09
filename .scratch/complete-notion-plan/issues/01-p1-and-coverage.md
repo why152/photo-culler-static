@@ -24,3 +24,8 @@ copy verified30 JPEG/RW2 groups+3test XMP:35output files allSHA/companions,
 permission deny/retry and cancellation, originals unchanged. Windows CI exposed
 legacy progress observation race; held scan fixture preserves assertion.
 114Node+65Chrome+10dist local passed; final PR CI/deploy pending.
+
+Final UI verification caught dialog fullscreen rejection; document-root fullscreen
+and modal question-mark help now pass. Windows Edge repeated run exposed a second
+legacy test delay assumption; controlled first-decode gate preserves cancellation
+assertion and focused11tests pass. Final head CI awaited before merge.
