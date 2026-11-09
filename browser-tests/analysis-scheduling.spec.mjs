@@ -16,7 +16,7 @@ test("production grid receives a usable thumbnail while final scoring messages a
       terminate() { return this.worker.terminate(); }
     };
   });
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory();
     const directory = await root.getDirectoryHandle(`preview-before-score-${crypto.randomUUID()}`,{create:true});

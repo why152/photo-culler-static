@@ -57,7 +57,7 @@ test("Photo Viewer shows full portrait and landscape sources without clipping", 
     if (message.type() === "error") errors.push(message.text());
   });
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createMixedPhotoSource(page, sourceName);
 
   await page.getByRole("button", { name: "选择照片文件夹" }).click();

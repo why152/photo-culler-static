@@ -14,7 +14,7 @@ async function javascriptFiles(directory) {
   return files.sort();
 }
 
-const files = [join(root, "web/site.js"),
+const files = [join(root, "web/site.js"), join(root, "web/auto.js"),
   ...await javascriptFiles(join(root, "web/modules")),
   ...await javascriptFiles(join(root, "scripts"))];
 let failures = 0;

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("analysis cache isolates identical file signatures and same directory names, reuses handles, and versions results", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const result = await page.evaluate(async () => {
     const { BrowserReviewStore } = await import("./modules/browser-store.js");
     const root = await navigator.storage.getDirectory();
@@ -71,7 +71,7 @@ test("analysis cache isolates identical file signatures and same directory names
 
 for (const version of [1, 2]) {
   test(`version-${version} cache migration discards unscoped scores and preserves directory and review state`, async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/legacy.html");
     const result = await page.evaluate(async (legacyVersion) => {
       const { BrowserReviewStore } = await import("./modules/browser-store.js");
       const root = await navigator.storage.getDirectory();
@@ -127,7 +127,7 @@ for (const version of [1, 2]) {
 }
 
 test("directory registry removes missing handles and bounds orphan identities without losing cached results", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const result = await page.evaluate(async () => {
     const { BrowserReviewStore } = await import("./modules/browser-store.js");
     const root = await navigator.storage.getDirectory();

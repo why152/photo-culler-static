@@ -20,7 +20,7 @@ test("first run gives the local directory picker one compact, keyboard-operable 
   page,
 }) => {
   const sourceName = `photo-culler-first-run-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await preparePhotoDirectory(page, sourceName);
 
   const entry = page.locator("#empty-state");
@@ -51,7 +51,7 @@ test("first run gives the local directory picker one compact, keyboard-operable 
 
 test("first-run directory entry also accepts Enter", async ({ page }) => {
   const sourceName = `photo-culler-first-run-enter-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await preparePhotoDirectory(page, sourceName);
 
   await page.locator("#empty-choose-folder").focus();
@@ -63,7 +63,7 @@ test("first-run directory entry also accepts Enter", async ({ page }) => {
 });
 
 test("first-run directory action has a visible pointer press state", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(() => {
     window.showDirectoryPicker = () => new Promise(() => {});
   });

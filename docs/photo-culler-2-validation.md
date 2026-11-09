@@ -1,0 +1,76 @@
+# Photo Culler 2.0 Beta candidate validation
+
+Date: 2026-11-09 JST. Baseline main: b46899ec9dcfc73b08e2b642ea5b71ad9eb8965b.
+Implementation branch: codex/photo-culler-2. Source: execution book section 0.
+Initial synthetic validation accessed no user camera originals. A later explicitly authorized read-only real-camera test is recorded below; no originals were modified, moved or deleted. No production
+site was deployed. The screenshot is the real built first-run page, not a mockup.
+
+## Reproduce
+
+Node 22.22.0, npm 10.9.4, installed macOS Google Chrome, local static origins.
+Run `npm ci`, `npm run check`, `npm test`, `npm run test:dist`.
+Chrome initially SIGABRT under the restricted sandbox; the same tests run outside
+that sandbox pass. All created file fixtures are test-owned OPFS or memory blobs.
+
+Baseline: 96 Node tests, 64 Chrome tests passed, 1 opt-in benchmark skipped.
+Final local validation: 107 Node tests, 65 Chrome regression tests passed,
+1 existing opt-in benchmark skipped; 3 built-dist Chrome tests passed.
+`npm run check` passed (32 JavaScript files), build and `git diff --check` passed.
+Built cull Worker: 103.19 kB; main v2 JS: 117.58 kB (43.47 kB gzip),
+CSS: 2.97 kB; separate legacy bundle retained. No model weights or separate WASM
+fetch. These are artifact sizes, not measured runtime peak memory.
+CI status is recorded separately in the PR; local success does not imply CI success.
+
+| Area | Evidence | Boundary |
+|---|---|---|
+| Legacy upgrade | v3 IndexedDB fixture upgrades to v4; sessions A/B and favorite persist; migration is additive/idempotent | No actual user's browser database accessed |
+| Inventory | Recursive same names, RAW/XMP, MOV, RAW-only, failed HEIC, historical output exclusion | Same-stem matching only; uncertain Live Photos not inferred across stems |
+| Similarity | same-byte renamed files, complete-link distance/time limits, 30-frame synthetic burst, independent scene and manual split | No measured edited/cropped-image recall or panorama classification |
+| Ranking | at least one candidate, diversity, exposure-bias/bracket protection, low-quality/failed item protection, human precedence | Technical scores do not identify expression, intent or story value |
+| Review UI | shortlist/all filter, favorite through threshold changes, modal single/A-B, keyboard close and state reopen | Four-up renderer exercised; low-memory devices limited to two; no formal accessibility audit |
+| Copy output | OPFS byte copies, companions and relative directories, SHA source=destination, separate confirmation and cancellation before writes | Not external Mac/Windows disk acceptance |
+| Failure safety | fake permission denial, source changed, cancellation, repeated copy, different-byte collision preserved | Physical power loss, real disk-full/device removal not reproduced |
+| Network/build | built Pages subpath, workers and embedded WASM loads; no failed resource requests, only same-origin GET/local Blob reads | No live production URL validation for this branch |
+| v1 regression | all original viewer, virtual gallery, worker/cache and movement/recovery checks retained at legacy route | Native external moves are intentionally disabled; OPFS proof is not external proof |
+
+## Explicitly incomplete acceptance
+
+- No independent labeled 500–1000 S9 photos, therefore no Top-K preference recall,
+  important-moment recall, time saving, or false-suppression accuracy claim.
+  95% and 70% remain targets, not measured results. Use loose/all review.
+- MediaPipe not installed: no verified telemetry-disable path or informed opt-in.
+  Embedding not installed: no frozen small-model/license/resource/benefit evidence.
+- No Windows Edge or real macOS external-directory move/restore proof. Read-only
+  import and copy are the baseline; external move remains disabled, old journals
+  are retained and discoverable, unsupported restore reports a limitation.
+- Near edits/crops, HDR without metadata, panorama and artistic special sequences
+  have no semantic recognition. Explicit low-quality/bias/time evidence is
+  conservative, but uncertain high-quality similar frames can still be folded.
+  Review all originals when a sequence matters. No destructive consequence.
+- Copy journal supports verified idempotence and a saved output handle allows
+  confirmed resume after reload. A synthetic disk-full-before-first-file test
+  covers that path. Different or incomplete existing bytes stop without overwrite;
+  use a new output when conflicts cannot be safely resumed.
+- Current 2.0 gallery uses bounded pages of 60; the original virtual gallery remains
+  accessible in v1. It is not a new virtual scrolling implementation.
+- Project had no root LICENSE. Dependency notices are preserved; choosing an
+  overall project license requires the repository owner's decision.
+
+Engineering tests passing means a reviewable Beta candidate, not the complete
+human-quality/platform acceptance matrix and not Stable. CI success is reported
+separately from local tests; no CI status is assumed before GitHub runs it.
+
+## CI follow-up
+
+The first Linux CI run exposed a legacy filmstrip resize/scroll race: a queued
+resize restored the old offset after the user explicitly scrolled to zero.
+Preserve the explicit start boundary during reflow. The original 2000-item
+assertion remains unchanged. Final CI result is available on PR #2.
+
+## Authorized real-camera follow-up
+
+[Full aggregate report](research/culler-2-real-directory-acceptance.md): 1,233 JPEG/RW2 pairs, all original hashes and metadata unchanged; complete decode, 1,062 verified output files on isolated copies, cold/warm session completion. This supersedes the earlier absence of real-image functional evidence, but does not supply human preference labels or external-disk/platform acceptance.
+
+## Mixed photo/video follow-up
+
+[Mixed-format report](research/culler-2-mixed-directory-acceptance.md): all 2,213 source files unchanged; HEIC 226 decoded / 53 safely protected; all 269 video groups protected; explicit inclusion copied and hash-verified 1,897 files without splitting companions. Real external-disk and human preference acceptance remain outstanding.

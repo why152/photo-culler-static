@@ -47,7 +47,7 @@ async function createDelayedPhotoSource(page, sourceName, photoCount) {
       }
     };
   });
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async ([name, count]) => {
     const root = await navigator.storage.getDirectory();
     const source = await root.getDirectoryHandle(name, { create: true });
@@ -89,7 +89,7 @@ test("Photo Viewer provides a filmstrip and continuous review before returning f
     if (message.type() === "error") errors.push(message.text());
   });
   page.on("request", (request) => requests.push(request.url()));
-  await page.goto("/");
+  await page.goto("/legacy.html");
 
   await createPhotoSource(page, sourceName);
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
@@ -144,7 +144,7 @@ test("Photo Viewer releases its full-resolution object URL when it closes", asyn
       revokeObjectURL(url);
     };
   });
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createPhotoSource(page, sourceName, 2);
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
   await page.locator('[id="photo-card:photo-group:P1000001"]').click();
@@ -174,7 +174,7 @@ test("action selection is explicit, supports Shift ranges, and does not replace 
   page,
 }) => {
   const sourceName = `photo-culler-selection-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createPhotoSource(page, sourceName);
   const originalEntries = await sourceEntryNames(page, sourceName);
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
@@ -201,7 +201,7 @@ test("an empty review filter explains its result without creating a file action"
   page,
 }) => {
   const sourceName = `photo-culler-empty-filter-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createPhotoSource(page, sourceName);
   const originalEntries = await sourceEntryNames(page, sourceName);
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
@@ -217,7 +217,7 @@ test("Photo Viewer leaves Space to its focused controls and returns focus after 
   page,
 }) => {
   const sourceName = `photo-culler-viewer-focus-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createPhotoSource(page, sourceName, 1);
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
 
@@ -241,7 +241,7 @@ test("Photo Viewer leaves Space to its focused controls and returns focus after 
 
 test("Photo Viewer restores the opening grid scroll position", async ({ page }) => {
   const sourceName = `photo-culler-viewer-scroll-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createPhotoSource(page, sourceName, 24);
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
   await expect(page.locator(".photo-card")).toHaveCount(24);
@@ -265,7 +265,7 @@ test("Photo Viewer gives its analysis source most of the available desktop and n
   page,
 }) => {
   const sourceName = `photo-culler-viewer-size-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createPhotoSource(page, sourceName, 1);
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
   await page.locator('[id="photo-card:photo-group:P1000001"]').click();
@@ -290,7 +290,7 @@ test("Photo Viewer keeps the current thumbnail and its next photo visible in a l
   page,
 }) => {
   const sourceName = `photo-culler-long-filmstrip-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createPhotoSource(page, sourceName, 60);
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
   await expect(page.locator(".photo-card")).toHaveCount(60);
@@ -333,7 +333,7 @@ test("selecting a photo group does not replace already presented thumbnail sourc
   page,
 }) => {
   const sourceName = `photo-culler-stable-preview-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createPhotoSource(page, sourceName, 3);
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
   const firstPreview = page.locator(
@@ -351,7 +351,7 @@ test("suggested removal provides an explicit selection step before a recoverable
   page,
 }) => {
   const sourceName = `photo-culler-reject-action-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createPhotoSource(page, sourceName, 3);
   const originalEntries = await sourceEntryNames(page, sourceName);
   await page.getByRole("button", { name: "选择照片文件夹" }).click();

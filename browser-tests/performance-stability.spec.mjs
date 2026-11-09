@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 async function preparePhotoSource(page, sourceName, photoCount) {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async ([name, count]) => {
     const root = await navigator.storage.getDirectory();
     const source = await root.getDirectoryHandle(name, { create: true });
@@ -104,7 +104,7 @@ test("switching directories terminates stale worker analysis and keeps new progr
       }
     };
   });
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory();
     const canvas = new OffscreenCanvas(32, 20);
@@ -156,7 +156,7 @@ test("switching directories terminates stale worker analysis and keeps new progr
 test("a large JPEG analyzes through the downscaled decode path and still yields a thumbnail", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const result = await page.evaluate(async () => {
     const { BrowserPhotoAnalyzer } = await import(
       "./modules/photo-analysis.js"
@@ -255,7 +255,7 @@ test("closing the moved panel invalidates previews that have not started decodin
 test("the analysis cache evicts its oldest entries instead of growing without a bound", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const databaseName = `photo-culler-cache-${crypto.randomUUID()}`;
   const availability = await page.evaluate(async (name) => {
     const { BrowserReviewStore } = await import("./modules/browser-store.js");
@@ -297,7 +297,7 @@ test("the analysis cache evicts its oldest entries instead of growing without a 
 test("the version-one unscoped analysis cache is invalidated on migration", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const databaseName = `photo-culler-cache-migration-${crypto.randomUUID()}`;
   const result = await page.evaluate(async (name) => {
     const legacyDatabase = await new Promise((resolve, reject) => {

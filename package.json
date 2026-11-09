@@ -6,9 +6,18 @@
   "scripts": {
     "test": "node --test web/tests/*.test.mjs && npm run test:browser",
     "test:browser": "playwright test",
-    "check": "node scripts/check-syntax.mjs"
+    "check": "node scripts/check-syntax.mjs",
+    "build": "vite build",
+    "dev": "vite",
+    "test:dist": "npm run build && playwright test --config playwright.dist.config.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1"
+    "@playwright/test": "^1.62.1",
+    "vite": "8.3.6"
+  },
+  "dependencies": {
+    "@stabilityprotocol.com/phash": "1.0.0",
+    "exifr": "7.1.3",
+    "hash-wasm": "4.13.0"
   }
 }

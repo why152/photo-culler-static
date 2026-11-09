@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("thumbnail views reuse previews, update changed analysis and release filtered entries", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const result = await page.evaluate(async () => {
     const { PhotoGridView, FilmstripView } = await import("/modules/thumbnail-views.js");
     const revoked = [];

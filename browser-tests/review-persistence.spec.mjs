@@ -47,7 +47,7 @@ async function persistedReview(page) {
 test("rapid review keys advance immediately and undo remains ordered while saves wait", async ({ page }) => {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await openSource(page);
   await delaySaves(page);
   await page.locator('[id="photo-card:photo-group:P1"]').click();
@@ -70,7 +70,7 @@ test("rapid review keys advance immediately and undo remains ordered while saves
 test("storage failure retains optimistic decisions and exposes a working retry", async ({ page }) => {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await openSource(page, 2);
   await page.evaluate(async () => {
     const { BrowserReviewStore } = await import("/modules/browser-store.js");
@@ -93,7 +93,7 @@ test("storage failure retains optimistic decisions and exposes a working retry",
 });
 
 test("directory switching waits for pending saves and clears old undo history", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await openSource(page, 2);
   await delaySaves(page);
   await page.locator('[id="photo-card:photo-group:P1"]').click();
@@ -116,5 +116,6 @@ test("directory switching waits for pending saves and clears old undo history", 
   await page.locator('[id="photo-card:photo-group:P1"]').click();
   await page.keyboard.press("u");
   await expect(page.locator('[id="photo-card:photo-group:P1"]')).not.toContainText("精选");
-  expect((await persistedReview(page))).toBeNull();
+  // Multi-session upgrade keeps the earlier directory review instead of losing it.
+  expect((await persistedReview(page)).decisions).toEqual({ "photo-group:P1": "pick" });
 });

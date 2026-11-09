@@ -12,7 +12,7 @@ test("the public site exposes indexable metadata, structured data, and crawler e
     if (message.type() === "error") errors.push(message.text());
   });
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("/legacy.html");
 
   await expect(page).toHaveTitle("Photo Culler — 本地照片筛选与审核工具");
   await expect(page.locator('meta[name="description"]')).toHaveAttribute(

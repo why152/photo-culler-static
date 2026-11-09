@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 async function createLargeSource(page, count) {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async (size) => {
     const root = await navigator.storage.getDirectory();
     const directory = await root.getDirectoryHandle(`virtual-gallery-${crypto.randomUUID()}`, { create: true });

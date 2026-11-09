@@ -623,7 +623,8 @@ function renderControls() {
     : "选择全部建议移出";
   elements["clear-action-selection"].hidden = !selectedCount;
   elements["move-button"].hidden = !selectedCount;
-  elements["move-button"].disabled = !selectedCount || fileOperation.isBusy;
+  elements["move-button"].title = state?.nativeMoveVerified ? "原生 OPFS 可恢复移动" : "外部目录移动尚未验证，请使用 2.0 复制导出";
+  elements["move-button"].disabled = !selectedCount || fileOperation.isBusy || !state?.nativeMoveVerified || !capabilities.fileMove;
   elements["review-count"].textContent =
     `已筛 ${state.reviewedCount} / ${state.photoGroups.length} · 当前筛选 ${visibleGroups().length} 个照片组`;
 }
@@ -844,6 +845,7 @@ function clearActionSelection() {
   render();
 }
 async function moveActionSelection() {
+  if (!state?.nativeMoveVerified || !capabilities.fileMove) return showError(new Error("当前外部目录未通过原生移动验证；请使用 2.0 复制导出，原件保持不变。"));
   if (workspaceTransition) return;
   const selectedIds = gallery?.selectedPhotoGroupIds() ?? [];
   if (!selectedIds.length) return;
@@ -906,6 +908,7 @@ async function moveActionSelection() {
   }
 }
 async function restoreBatch(batchId) {
+  if (!state?.nativeMoveVerified || !capabilities.fileMove) return showError(new Error("当前目录无法安全恢复移动，历史批次保持原样。"));
   if (workspaceTransition) return;
   const batch = state?.movedBatches.find((candidate) => candidate.id === batchId);
   const groupCount = batch?.photoGroups.length ?? 0;
@@ -1002,22 +1005,20 @@ const capabilities = browserCapabilities();
 if (
   !capabilities.secureContext ||
   !capabilities.directoryPicker ||
-  !capabilities.directoryEnumeration ||
-  !capabilities.fileWritable ||
-  !capabilities.fileMove
+  !capabilities.directoryEnumeration
 ) {
   elements["choose-folder"].disabled = true;
   elements["empty-choose-folder"].disabled = true;
   elements["capability-status"].hidden = false;
   elements["capability-status"].textContent =
-    "此浏览器缺少安全的本地目录移动能力。请使用 HTTPS 下的最新版 macOS Chrome 或 Edge。";
+    "此浏览器缺少目录读取能力。请使用 HTTPS 下的最新版 Chrome 或 Edge。";
 } else elements["capability-status"].hidden = true;
 function choosePhotoDirectory() {
   if (workspaceTransition) return;
   if (reviewSaveQueue?.error && !reviewSaveQueue.pending) return;
   // Request the picker in the click's activation window; persistence must
   // finish before opening the selected workspace, not before showing a picker.
-  const pickedDirectory = window.showDirectoryPicker({ id: "photo-culler-source", mode: "readwrite" })
+  const pickedDirectory = window.showDirectoryPicker({ id: "photo-culler-source", mode: "read" })
     .then((directory) => ({ directory }), (error) => ({ error }));
   void openWorkspace(async (options) => {
     const { directory, error } = await pickedDirectory;
