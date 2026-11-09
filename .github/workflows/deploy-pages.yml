@@ -1,37 +1,36 @@
-name: Deploy static site to GitHub Pages
-
+name: Deploy tested static site to GitHub Pages
 on:
   push:
     branches: [main]
-    paths:
-      - "web/**"
-      - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:
-
 permissions:
   contents: read
   pages: write
   id-token: write
-
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: false
-
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-      - name: Upload web directory
-        uses: actions/upload-pages-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
         with:
-          path: web
-      - name: Deploy
-        id: deployment
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chrome
+      - run: npm run check
+      - run: npm test
+      - run: npm run test:dist
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+      - id: deployment
         uses: actions/deploy-pages@v4
