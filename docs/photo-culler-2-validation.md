@@ -70,3 +70,7 @@ assertion remains unchanged. Final CI result is available on PR #2.
 ## Authorized real-camera follow-up
 
 [Full aggregate report](research/culler-2-real-directory-acceptance.md): 1,233 JPEG/RW2 pairs, all original hashes and metadata unchanged; complete decode, 1,062 verified output files on isolated copies, cold/warm session completion. This supersedes the earlier absence of real-image functional evidence, but does not supply human preference labels or external-disk/platform acceptance.
+
+## Mixed photo/video follow-up
+
+[Mixed-format report](research/culler-2-mixed-directory-acceptance.md): all 2,213 source files unchanged; HEIC 226 decoded / 53 safely protected; all 269 video groups protected; explicit inclusion copied and hash-verified 1,897 files without splitting companions. Real external-disk and human preference acceptance remain outstanding.

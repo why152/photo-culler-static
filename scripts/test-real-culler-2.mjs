@@ -22,7 +22,7 @@ assert.ok(
 const report = {
   startedAt: new Date().toISOString(),
   scope:
-    "All user-authorized JPEG/RW2 original-byte copies in fresh temporary Chrome OPFS. No original directory handle is granted; external native picker/writes are not tested.",
+    "All user-authorized supported photo/video original-byte copies in fresh temporary Chrome OPFS. No original directory handle is granted; external native picker/writes are not tested.",
   pageErrors: [],
   blockedNetwork: [],
   resourceErrors: [],
@@ -278,11 +278,24 @@ try {
       });
     const sessions = await getAll("cull-sessions"),
       cache = await getAll("analysis");
+    const formats = {};
     const statuses = {},
       exif = { valid: 0, subsecond: 0 };
     let decoded = 0;
     for (const entry of cache) {
       const a = entry.analysis;
+      const members = JSON.parse(a.fingerprint);
+      const sourcePath = members.find(([path]) =>
+        /\.(jpe?g|png|webp|heic|heif)$/i.test(path),
+      )?.[0];
+      const ext =
+        sourcePath?.slice(sourcePath.lastIndexOf(".")).toLowerCase() ??
+        "unknown";
+      const format = formats[ext] ?? { cached: 0, decoded: 0, failed: 0 };
+      format.cached++;
+      if (a.analysis?.thumbnail) format.decoded++;
+      else format.failed++;
+      formats[ext] = format;
       statuses[a.analysis?.status ?? "unknown"] =
         (statuses[a.analysis?.status ?? "unknown"] ?? 0) + 1;
       if (a.analysis?.thumbnail) decoded++;
@@ -295,6 +308,7 @@ try {
       cached: cache.length,
       decoded,
       statuses,
+      formats,
       exif,
       stats: [...document.querySelectorAll("#stats>div")].map(
         (e) => e.textContent,
@@ -302,18 +316,48 @@ try {
       cards: document.querySelectorAll(".card").length,
     };
   });
-  assert.equal(report.analysis.cached, report.source.extensions[".jpg"]);
-  assert.equal(report.analysis.decoded, report.source.extensions[".jpg"]);
+  const expectedGroups = new Map();
+  for (const file of before) {
+    if (
+      !/\.(jpe?g|png|webp|heic|heif|rw2|raw|cr2|cr3|nef|arw|dng|orf|raf|xmp|mov|mp4|m4v|avi)$/i.test(
+        file.path,
+      )
+    )
+      continue;
+    const stem = file.path.replace(/\.[^/.]+$/, "");
+    const members = expectedGroups.get(stem) ?? [];
+    members.push(file.path);
+    expectedGroups.set(stem, members);
+  }
+  report.expected = {
+    groups: expectedGroups.size,
+    imageGroups: [...expectedGroups.values()].filter((m) =>
+      m.some((p) => /\.(jpe?g|png|webp|heic|heif)$/i.test(p)),
+    ).length,
+  };
+  assert.equal(report.analysis.cached, report.expected.imageGroups);
   assert.ok(report.analysis.cards <= 60);
-  // Exercise actual JPEG viewing and full-pixel zoom on isolated copies.
   await page.locator(".card img").first().click();
   await page.locator("#zoom-one").click();
-  await page.waitForTimeout(500);
-  assert.ok(
-    await page
-      .locator(".compare-frame img")
-      .evaluate((img) => img.naturalWidth > 1600),
-  );
+  await expect
+    .poll(() =>
+      page.locator(".compare-frame img").evaluate((img) => {
+        const frame = img.parentElement.getBoundingClientRect();
+        return (
+          Math.min(
+            frame.width / img.naturalWidth,
+            frame.height / img.naturalHeight,
+          ) * new DOMMatrix(getComputedStyle(img).transform).a
+        );
+      }),
+    )
+    .toBeCloseTo(1, 2);
+  report.viewer = await page
+    .locator(".compare-frame img")
+    .evaluate((img) => ({
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+    }));
   await page.keyboard.press("Escape");
   await page.locator("#accept").click();
   await expect(page.locator("#export-space")).toBeVisible();
@@ -321,6 +365,13 @@ try {
     summary: document.querySelector("#plan").textContent,
     detail: JSON.parse(document.querySelector("#unprocessed").textContent),
   }));
+  report.defaultPlan = report.plan;
+  await page.locator("#include-protected").check();
+  report.plan = await page.evaluate(() => ({
+    summary: document.querySelector("#plan").textContent,
+    detail: JSON.parse(document.querySelector("#unprocessed").textContent),
+  }));
+  report.explicitProtectedInclusion = true;
   // Cancel once before writing: the target must remain entirely empty.
   await page.locator("#target").click();
   await page.locator("#copy").click();
@@ -366,19 +417,39 @@ try {
         throw new Error("Export SHA does not match original baseline");
       verified++;
     }
-    const pairs = new Map();
-    for (const record of manifest.records) {
-      const ext = record.source
-          .slice(record.source.lastIndexOf("."))
-          .toLowerCase(),
-        stem = record.source.slice(0, record.source.lastIndexOf("."));
-      const set = pairs.get(stem) ?? new Set();
-      set.add(ext);
-      pairs.set(stem, set);
+    const groupMembers = new Map();
+    for (const file of original) {
+      if (
+        !/\.(jpe?g|png|webp|heic|heif|rw2|raw|cr2|cr3|nef|arw|dng|orf|raf|xmp|mov|mp4|m4v|avi)$/i.test(
+          file.path,
+        )
+      )
+        continue;
+      const id = "group:" + file.path.replace(/\.[^/.]+$/, "");
+      const list = groupMembers.get(id) ?? [];
+      list.push(file.path);
+      groupMembers.set(id, list);
     }
-    for (const set of pairs.values())
-      if (!set.has(".jpg") || !set.has(".rw2"))
-        throw new Error("JPEG/RW2 companions split");
+    const exported = new Set(manifest.records.map((r) => r.source));
+    for (const record of manifest.records)
+      for (const path of groupMembers.get(record.groupId) ?? [])
+        if (!exported.has(path)) throw new Error("Companion member split");
+    let videoGroups = 0,
+      protectedIncluded = 0;
+    for (const group of manifest.groups) {
+      const members = groupMembers.get(group.id) ?? [];
+      if (members.some((p) => /\.(mov|mp4|m4v|avi)$/i.test(p))) {
+        videoGroups++;
+        if (group.decision !== "protected")
+          throw new Error("Video group was not protected");
+      }
+      if (group.decision === "protected") {
+        protectedIncluded++;
+        for (const path of members)
+          if (!exported.has(path))
+            throw new Error("Explicit protected inclusion missing member");
+      }
+    }
     return {
       status: manifest.status,
       groupCount: manifest.groupCount,
@@ -386,6 +457,8 @@ try {
       bytes: manifest.bytes,
       allHashesMatchOriginals: verified,
       companionsComplete: true,
+      videoGroups,
+      protectedIncluded,
       protected: manifest.unprocessed.length,
       groups: manifest.groups.map((g) => ({
         id: g.id,
