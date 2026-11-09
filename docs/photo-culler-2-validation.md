@@ -74,3 +74,34 @@ assertion remains unchanged. Final CI result is available on PR #2.
 ## Mixed photo/video follow-up
 
 [Mixed-format report](research/culler-2-mixed-directory-acceptance.md): all 2,213 source files unchanged; HEIC 226 decoded / 53 safely protected; all 269 video groups protected; explicit inclusion copied and hash-verified 1,897 files without splitting companions. Real external-disk and human preference acceptance remain outstanding.
+
+## Acceptance repair and local labeling follow-up (2026-11-10 JST)
+
+Branch `codex/fix-shortlist-acceptance` repairs the three PM P1 findings:
+new burst sessions use compact while saved preferences survive; filtered paging
+wraps on the filtered count; acceptance persists an independent manifest snapshot,
+uses that exact snapshot for copy, and invalidates on candidate/setting/source
+changes. Undo disables copy without clearing human decisions or favorites.
+Reload, interrupted-output resume and separate copy confirmation remain covered.
+
+The local labeling workflow stores independent provenance, SHA-bound proxy imports,
+random human study samples and frozen recommendations. During fresh human labeling,
+intermediate recommendation metrics are hidden. Imported AI drafts remain explicitly
+AI-assisted even after individual human confirmation. No photo/label upload API or
+model dependency is added. See [workflow](photo-culler-2-labeling.md) and
+[AI proxy scope](research/culler-2-ai-proxy-review.md).
+
+Review CSV now includes every member's review state, including suppressed and
+protected members; non-exported rows have no destination. Formula-leading cells
+are escaped for spreadsheet opening; manifest and physical paths are unchanged.
+New controls have 44px targets, focus visibility and reduced-motion handling.
+New single-photo shortcuts support favorite/keep/exclude/review/undo/fullscreen;
+inputs retain their keystrokes. Four-up reduces to two below 1100px.
+
+Local results: 112 Node tests, 65 Chrome regressions and 8 built-dist tests pass;
+1 pre-existing optional benchmark remains skipped. Syntax checks cover 36 files.
+Windows Edge is added to PR CI; its actual result must be checked before claiming
+platform evidence. Native external-disk writes, power loss and genuine independent
+human quality/effort acceptance remain unverified. Edited/cropped/panoramic/semantic
+quality limits in the earlier matrix remain open; this patch does not claim them
+solved by AI proxy labeling.

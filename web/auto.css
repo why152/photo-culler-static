@@ -241,3 +241,51 @@ dialog::backdrop {
     gap: 12px;
   }
 }
+
+button,
+select,
+summary {
+  min-height: 44px;
+  min-width: 44px;
+}
+summary {
+  cursor: pointer;
+}
+.card input[type="checkbox"] {
+  width: 44px;
+  height: 44px;
+}
+button:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid #e2c48b;
+  outline-offset: 3px;
+}
+#compare:fullscreen {
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+#benchmark::backdrop {
+  background: #111216;
+}
+#benchmark-image {
+  display: block;
+  max-width: 100%;
+  height: 45vh;
+  object-fit: contain;
+  margin: auto;
+}
+#benchmark label {
+  flex-wrap: wrap;
+}

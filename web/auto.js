@@ -17,6 +17,14 @@ import {
   copyPlan,
   assertIndependent,
 } from "./modules/cull-export.js";
+import {
+  acceptPlan,
+  acceptanceMatches,
+  defaultStrength,
+  nextPageOffset,
+} from "./modules/cull-acceptance.js";
+import { ReviewDecisionHistory } from "./modules/review-persistence.js";
+import { installBenchmark } from "./modules/cull-benchmark-ui.js";
 import { ViewerZoom } from "./modules/viewer-zoom.js";
 const $ = (id) => document.getElementById(id);
 const store = new BrowserReviewStore();
@@ -42,6 +50,8 @@ let target = null,
   plan = null,
   accepted = null,
   view = "import";
+let visibleCount = 0;
+let decisionHistory = new ReviewDecisionHistory();
 const chosen = new Set(),
   urls = new Set(),
   comparisonUrls = new Set();
@@ -91,9 +101,15 @@ function url(blob, comparison = false) {
 function save() {
   const patch = structuredClone({
     human,
-    preferences: { mode: $("mode").value, strength: $("strength").value },
+    preferences: {
+      mode: $("mode").value,
+      strength: $("strength").value,
+      includeProtected: $("include-protected").checked,
+    },
     algorithmVersion: ALGORITHM_VERSION,
-    acceptedAlgorithm: session?.acceptedAlgorithm ?? null,
+    acceptedPlan: accepted,
+    benchmark: session?.benchmark ?? null,
+    acceptedAlgorithm: accepted ? ALGORITHM_VERSION : null,
     splits: session?.splits ?? [],
     lastReport: session?.lastReport ?? null,
     lastOutput: session?.lastOutput ?? null,
@@ -199,11 +215,20 @@ async function open(directory) {
     target = null;
     output = null;
     chosen.clear();
+    decisionHistory = new ReviewDecisionHistory();
     accepted = null;
     session = await store.session(root);
     human = { ...session.human };
+    accepted = session.acceptedPlan ?? null;
+    $("include-protected").checked =
+      session.preferences?.includeProtected ??
+      accepted?.plan?.includeProtected ??
+      false;
     $("mode").value = session.preferences?.mode ?? "burst";
-    $("strength").value = session.preferences?.strength ?? "standard";
+    $("strength").value = defaultStrength(
+      $("mode").value,
+      session.preferences?.strength,
+    );
     release();
     groups = [];
     recommendations = {};
@@ -320,6 +345,7 @@ async function open(directory) {
     paused = false;
     $("pause").textContent = "暂停";
     setBusy(false);
+    renderPlan();
     void sessions();
   }
 }
@@ -342,12 +368,13 @@ async function decide(group, decision, favorite = false) {
     const sourceSHA = group.source
       ? await digest(await group.source.handle.getFile())
       : null;
-    human[group.id] = {
+    const nextDecision = {
       decision: favorite ? "keep" : decision,
       favorite,
       fingerprint: group.fingerprint,
       sourceSHA,
     };
+    decisionHistory.record(human, group.id, nextDecision);
     await save();
     render();
   } catch (e) {
@@ -391,6 +418,8 @@ function render() {
       (filter === "burst" &&
         batches.some((b) => b.length > 1 && b.some((x) => x.id === g.id))),
   );
+  visibleCount = visible.length;
+  if (offset >= visibleCount) offset = 0;
   // Bound DOM and active URLs. Revoke old previews before rebuilding a page.
   release();
   $("grid").replaceChildren();
@@ -472,6 +501,24 @@ function render() {
     offset + limit < visible.length ? "下一页 60 组" : "回到第一页";
   renderPlan();
 }
+const acceptanceStatuses = [];
+for (const space of ["results", "export"]) {
+  const status = document.createElement("p");
+  status.id = "acceptance-status-" + space;
+  status.setAttribute("role", "status");
+  status.tabIndex = -1;
+  $(space + "-space")
+    .querySelector("h1")
+    .after(status);
+  acceptanceStatuses.push(status);
+}
+const exportAccept = document.createElement("button");
+exportAccept.textContent = "接受当前输出计划";
+exportAccept.onclick = acceptCurrentPlan;
+const exportUndo = document.createElement("button");
+exportUndo.textContent = "取消本批采纳";
+exportUndo.onclick = undoAcceptance;
+$("copy").before(exportAccept, exportUndo);
 const resumeButton = document.createElement("button");
 resumeButton.textContent = "继续上次中断导出";
 resumeButton.hidden = true;
@@ -495,13 +542,32 @@ function renderPlan() {
     !session?.lastOutput ||
     !["copying", "interrupted"].includes(session?.lastReport?.status);
   resumeButton.disabled = busy;
-  if (!busy || !plan)
-    plan = exportPlan(
-      groups,
-      human,
-      recommendations,
-      $("include-protected").checked,
+  const preview = currentPlan();
+  if (!busy && accepted && !acceptanceMatches(accepted, preview, groups)) {
+    accepted = null;
+    if (root) void save();
+    message(
+      "照片、人工决定或筛选设置已变化，旧采纳已失效；请重新接受当前计划。",
     );
+  }
+  if (!busy || !plan)
+    plan = accepted && !busy ? resumePlan(accepted.plan, groups) : preview;
+  const confirmed = !!accepted && !busy;
+  for (const status of acceptanceStatuses)
+    status.textContent = busy
+      ? "正在处理，暂不能采纳"
+      : confirmed
+        ? "已采纳：" +
+          accepted.plan.groupCount +
+          " 组 / " +
+          accepted.plan.fileCount +
+          " 个文件。已保存本次输出计划，尚未复制照片。"
+        : "尚未采纳：以下为推荐预览。接受后生成已确认输出计划；修改决定或设置后需重新采纳。";
+  $("accept").disabled = busy || !groups.length || confirmed;
+  $("accept").textContent = confirmed ? "已接受整批推荐" : "接受整批推荐";
+  $("undo-accept").disabled = busy || !accepted;
+  exportAccept.disabled = busy || !groups.length || confirmed;
+  exportUndo.disabled = busy || !accepted;
   if (!plan) return;
   $("plan").textContent =
     plan.groupCount +
@@ -523,7 +589,7 @@ function renderPlan() {
     2,
   );
   $("copy").disabled =
-    busy || !target || !plan.records.length || !!persistenceError;
+    busy || !target || !accepted || !plan.records.length || !!persistenceError;
 }
 function download(value, name, type = "application/json") {
   const a = document.createElement("a");
@@ -562,7 +628,7 @@ async function compare(list) {
     // oversized image decode is limited to the existing 1600px preview contract.
     frame.append(img);
     const caption = document.createElement("p");
-    caption.textContent = g.path + " · F 精选 · J/K 浏览";
+    caption.textContent = g.path + " · 1 精选 · J/K 浏览";
     frame.append(caption);
     $("compare-images").append(frame);
     const blob = g.analysis?.thumbnail;
@@ -679,17 +745,78 @@ $("zoom-one").onclick = async () => {
   }
   applyZoom();
 };
+const help = document.querySelector("main > details");
+if (help) {
+  help.id = "shortcut-help";
+  const keys = document.createElement("p");
+  keys.textContent =
+    "快捷键：? 帮助；单图中 J/K 或方向键浏览，1 精选，2 保留，X 暂不导出，3 稍后复核，U 撤销，F 全屏，Esc 关闭。输入框中不触发快捷键。";
+  help.append(keys);
+}
 document.addEventListener("keydown", (e) => {
-  if (!$("compare").open || /INPUT|SELECT/.test(e.target.tagName)) return;
-  if (e.key.toLowerCase() === "f" && compared[0])
-    void decide(compared[0], "keep", !human[compared[0].id]?.favorite);
+  if (
+    e.ctrlKey ||
+    e.metaKey ||
+    e.altKey ||
+    e.target.closest("input,select,textarea,[contenteditable=true]")
+  )
+    return;
+  if (e.key === "?") {
+    e.preventDefault();
+    help.open = !help.open;
+    help.querySelector("summary").focus();
+    return;
+  }
+  if (!$("compare").open || busy) return;
+  const key = e.key.toLowerCase(),
+    g = compared[0];
+  if (key === "u") {
+    e.preventDefault();
+    if (decisionHistory.undo(human)) {
+      void save();
+      render();
+    }
+    return;
+  }
+  if (key === "f") {
+    e.preventDefault();
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else
+      void $("compare")
+        .requestFullscreen?.()
+        .catch(() => {});
+    return;
+  }
+  if (g && ["1", "2", "x", "3"].includes(key)) {
+    e.preventDefault();
+    void decide(
+      g,
+      key === "x" ? "exclude" : key === "3" ? "review_later" : "keep",
+      key === "1",
+    );
+    return;
+  }
   if (
     compared.length === 1 &&
     ["j", "k", "ArrowLeft", "ArrowRight"].includes(e.key)
   ) {
-    const index = groups.indexOf(compared[0]);
-    const next = groups[index + (["j", "ArrowLeft"].includes(e.key) ? -1 : 1)];
+    e.preventDefault();
+    const index = groups.indexOf(g),
+      next = groups[index + (["j", "ArrowLeft"].includes(e.key) ? -1 : 1)];
     if (next) void compare([next]);
+  }
+});
+window.addEventListener("resize", () => {
+  if (!$("compare").open) return;
+  if (compared.length > 2 && innerWidth < 1100) {
+    void compare(compared.slice(0, 2));
+    message("窗口较窄，已降级为双图比较。");
+  } else {
+    for (const { zoom, frame } of zooms) {
+      const rect = frame.getBoundingClientRect();
+      zoom.resize(rect.width, rect.height);
+    }
+    applyZoom();
   }
 });
 for (const b of document.querySelectorAll("[data-space]"))
@@ -714,25 +841,62 @@ $("filter").onchange = () => {
   render();
 };
 $("more").onclick = () => {
-  offset += limit;
-  if (offset >= groups.length) offset = 0;
+  offset = nextPageOffset(offset, visibleCount, limit);
   render();
 };
-$("accept").onclick = async () => {
-  accepted = structuredClone(recommendations);
-  session.acceptedAlgorithm = ALGORITHM_VERSION;
-  await save();
-  render();
-  show("export");
-  message("已采纳本批输出计划，请预览并另行确认复制。原件未改变。");
-};
-$("undo-accept").onclick = async () => {
-  if (!accepted) return;
-  session.acceptedAlgorithm = null;
+function currentPlan() {
+  return {
+    ...exportPlan(
+      groups,
+      human,
+      recommendations,
+      $("include-protected").checked,
+    ),
+    preferences: { mode: $("mode").value, strength: $("strength").value },
+  };
+}
+async function acceptCurrentPlan() {
+  if (busy || !root || !groups.length) return;
+  const previous = accepted;
+  const candidate = currentPlan();
+  accepted = acceptPlan(candidate, groups);
+  try {
+    await save();
+    render();
+    show("export");
+    $("export-space").scrollIntoView({ block: "start" });
+    $("acceptance-status-export").focus({ preventScroll: true });
+    message(
+      "已采纳 " +
+        candidate.groupCount +
+        " 组 / " +
+        candidate.fileCount +
+        " 个文件。输出计划已保存；选择目标并确认后才会复制，原件未改变。",
+    );
+  } catch (error) {
+    accepted = previous;
+    renderPlan();
+    message("采纳保存失败：" + error.message + "。请重试。");
+  }
+}
+async function undoAcceptance() {
+  if (busy || !accepted) return;
+  const previous = accepted;
   accepted = null;
-  await save();
-  render();
-};
+  try {
+    await save();
+    render();
+    message(
+      "已取消采纳，输出恢复为未确认预览；人工保留和精选未改变，未执行任何文件操作。",
+    );
+  } catch (error) {
+    accepted = previous;
+    renderPlan();
+    message("取消采纳保存失败：" + error.message);
+  }
+}
+$("accept").onclick = acceptCurrentPlan;
+$("undo-accept").onclick = undoAcceptance;
 $("compare-two").onclick = () => {
   const selected = groups.filter((g) => chosen.has(g.id) && g.source);
   if (selected.length !== 2) return message("请勾选 2 张可分析图片。");
@@ -744,15 +908,21 @@ $("compare-four").onclick = () => {
   void compare(
     selected.slice(
       0,
-      navigator.deviceMemory && navigator.deviceMemory < 4 ? 2 : 4,
+      window.innerWidth < 1100 ||
+        (navigator.deviceMemory && navigator.deviceMemory < 4)
+        ? 2
+        : 4,
     ),
   );
 };
-$("include-protected").onchange = renderPlan;
+$("include-protected").onchange = () => {
+  renderPlan();
+  if (root) void save();
+};
 $("download").onclick = () => {
   renderPlan();
   download(
-    JSON.stringify(session?.lastReport ?? publicManifest(plan), null, 2),
+    JSON.stringify(publicManifest(plan), null, 2),
     "photo-culler-manifest.json",
   );
 };
@@ -782,6 +952,7 @@ $("target").onclick = async () => {
 $("copy").onclick = () => {
   resumeRequested = false;
   renderPlan();
+  if (!accepted || busy || !target) return;
   $("confirm-text").textContent =
     "复制 " +
     plan.fileCount +
@@ -797,7 +968,9 @@ $("copy").onclick = () => {
 $("confirm-cancel").onclick = () => $("confirm").close();
 $("confirm-copy").onclick = async () => {
   $("confirm").close();
-  if (busy || (!target && !resumeRequested)) return;
+  if (!resumeRequested) renderPlan();
+  if (busy || (!target && !resumeRequested) || (!resumeRequested && !accepted))
+    return;
   const execution = plan;
   setBusy(true);
   controller = new AbortController();
@@ -877,3 +1050,10 @@ window.addEventListener("pagehide", () => {
   release();
 });
 void sessions();
+
+installBenchmark({
+  getState: () => ({ groups, recommendations, session, busy }),
+  save,
+  message,
+  download,
+});
