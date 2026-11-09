@@ -537,11 +537,14 @@ const zooms = [];
 let compared = [],
   compareGeneration = 0;
 function applyZoom() {
-  for (const { zoom, img } of zooms)
-    img.style.transform = `translate(${zoom.offsetX}px,${zoom.offsetY}px) scale(${zoom.zoomFactor})`;
+  for (const { zoom, img } of zooms) {
+    img.style.transformOrigin = "0 0";
+    img.style.transform = `translate(${zoom.offsetX + zoom.contentX * (1 - zoom.zoomFactor)}px,${zoom.offsetY + zoom.contentY * (1 - zoom.zoomFactor)}px) scale(${zoom.zoomFactor})`;
+  }
 }
 async function compare(list) {
   releaseComparison();
+  $("zoom-one").disabled = true;
   const generation = ++compareGeneration;
   compared = list;
   zooms.length = 0;
@@ -588,10 +591,11 @@ async function compare(list) {
     } finally {
       bitmap?.close();
     }
-    const zoom = new ViewerZoom();
+    const zoom = new ViewerZoom({ minZoom: 0.01, maxZoom: 64 });
     const rect = frame.getBoundingClientRect();
     zoom.setImage(rect.width, rect.height, width, height);
     zooms.push({ zoom, img, frame, file, original: false });
+    $("zoom-one").disabled = false;
     frame.onwheel = (e) => {
       e.preventDefault();
       for (const item of $("sync").checked ? zooms : [{ zoom }])
@@ -667,7 +671,7 @@ $("zoom-one").onclick = async () => {
       z.zoomAt(
         z.frameWidth / 2,
         z.frameHeight / 2,
-        Math.max(1, z.naturalWidth / z.contentWidth) / z.zoomFactor,
+        z.naturalWidth / z.contentWidth / z.zoomFactor,
       );
     } catch (e) {
       message("原图放大失败，保留预览：" + e.message);

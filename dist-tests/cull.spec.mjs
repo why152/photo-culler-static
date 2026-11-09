@@ -70,6 +70,22 @@ test("built root: readonly import, workers, protected formats, comparisons, expo
   await images.first().click();
   await expect(page.locator("#compare")).toBeVisible();
   await page.locator("#zoom-one").click();
+  await expect
+    .poll(() =>
+      page
+        .locator(".compare-frame img")
+        .first()
+        .evaluate((img) => {
+          const frame = img.parentElement.getBoundingClientRect();
+          return (
+            Math.min(
+              frame.width / img.naturalWidth,
+              frame.height / img.naturalHeight,
+            ) * new DOMMatrix(getComputedStyle(img).transform).a
+          );
+        }),
+    )
+    .toBeCloseTo(1, 2);
   await page.keyboard.press("Escape");
   await page.locator(".card input").nth(0).check();
   await page.locator(".card input").nth(1).check();
@@ -177,11 +193,46 @@ test("read directory works without native move support, v1 remains reachable", a
   await expect(page.locator("#choose-folder")).toBeEnabled();
 });
 
-test('an interrupted copy resumes after reload using its saved output without changing source files',async({page})=>{
- await page.goto('./');await fixture(page);await page.locator('#choose').click();await expect(page.locator('#global')).toContainText('本地分析完成');
- await page.locator('[data-space="export"]').click();await page.locator('#include-protected').check();await page.locator('#target').click();
- await page.evaluate(()=>{const original=FileSystemDirectoryHandle.prototype.getDirectoryHandle;let fail=true;FileSystemDirectoryHandle.prototype.getDirectoryHandle=function(name,options){if(name==='Keepers'&&fail){fail=false;return Promise.reject(new DOMException('simulated disk full','QuotaExceededError'));}return original.call(this,name,options);};});
- await page.locator('#copy').click();await page.locator('#confirm-copy').click();await expect(page.locator('#feedback')).toContainText('导出未完成');
- await page.reload();await page.locator('#sessions button').first().click();await expect(page.locator('#global')).toContainText('本地分析完成');await page.locator('[data-space="export"]').click();await page.getByRole('button',{name:'继续上次中断导出'}).click();await page.locator('#confirm-copy').click();await expect(page.locator('#feedback')).toContainText('已复制并校验');
- const count=await page.evaluate(async()=>{const root=await navigator.storage.getDirectory();const target=await root.getDirectoryHandle('exports');return (await Array.fromAsync(target.values())).length;});expect(count).toBe(1);
+test("an interrupted copy resumes after reload using its saved output without changing source files", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await fixture(page);
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.locator('[data-space="export"]').click();
+  await page.locator("#include-protected").check();
+  await page.locator("#target").click();
+  await page.evaluate(() => {
+    const original = FileSystemDirectoryHandle.prototype.getDirectoryHandle;
+    let fail = true;
+    FileSystemDirectoryHandle.prototype.getDirectoryHandle = function (
+      name,
+      options,
+    ) {
+      if (name === "Keepers" && fail) {
+        fail = false;
+        return Promise.reject(
+          new DOMException("simulated disk full", "QuotaExceededError"),
+        );
+      }
+      return original.call(this, name, options);
+    };
+  });
+  await page.locator("#copy").click();
+  await page.locator("#confirm-copy").click();
+  await expect(page.locator("#feedback")).toContainText("导出未完成");
+  await page.reload();
+  await page.locator("#sessions button").first().click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.locator('[data-space="export"]').click();
+  await page.getByRole("button", { name: "继续上次中断导出" }).click();
+  await page.locator("#confirm-copy").click();
+  await expect(page.locator("#feedback")).toContainText("已复制并校验");
+  const count = await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    const target = await root.getDirectoryHandle("exports");
+    return (await Array.fromAsync(target.values())).length;
+  });
+  expect(count).toBe(1);
 });
