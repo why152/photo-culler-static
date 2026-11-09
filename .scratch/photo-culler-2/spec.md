@@ -1,0 +1,21 @@
+# Photo Culler 2.0
+Status: In Progress
+Source: https://app.notion.com/p/413d0befadbd8126b9a9cda079c62a01
+
+Section 0 overrides historical details: one read-only recursive root per session;
+human preferences precede machine plans; copy only after separate approval;
+external native moves disabled without actual platform proof. No cloud/telemetry.
+Preserve v1 viewer, decisions, batches and journals. Core pinned dependencies:
+Vite 8.3.6, hash-wasm 4.13.0, exifr 7.1.3, phash 1.0.0.
+
+## Baseline
+main b46899ec9dcfc73b08e2b642ea5b71ad9eb8965b; initially clean.
+Node 22.22.0. npm ci and check passed; 96 Node tests passed.
+Sandbox Chrome launch SIGABRT; rerunning browser tests outside sandbox.
+
+## Acceptance
+Session migration/reopen, recursive pairing/protected formats, bounded grouping,
+Top-K and human overrides, comparison, cancellation, copy integrity/conflicts,
+subpath workers and no uploads, existing regressions, documentation and PR.
+Real S9 preference recall/time savings and external Mac/Windows moves are NOT
+validated by synthetic tests; no Stable claim or production deployment.
