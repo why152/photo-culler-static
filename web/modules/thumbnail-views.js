@@ -363,7 +363,9 @@ export class FilmstripView extends ThumbnailView {
     const reflow = !newCoordinates && previousStep &&
       (previousStep !== this.step || this.lastRange.width !== this.element.clientWidth);
     if (reflow) {
-      scrollLeft = this.lastRange.scrollLeft ?? scrollLeft;
+      // A user can scroll to the beginning while ResizeObserver is still
+      // queued. That explicit boundary must win over the previous CSS geometry.
+      scrollLeft = scrollLeft === 0 ? 0 : (this.lastRange.scrollLeft ?? scrollLeft);
       const selectedIndex = this.positions.get(this.currentPhotoGroupId);
       const selectedLeft = selectedIndex * previousStep;
       const selectedWasVisible = selectedLeft >= scrollLeft &&

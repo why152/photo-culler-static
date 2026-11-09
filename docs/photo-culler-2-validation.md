@@ -59,3 +59,10 @@ CI status is recorded separately in the PR; local success does not imply CI succ
 Engineering tests passing means a reviewable Beta candidate, not the complete
 human-quality/platform acceptance matrix and not Stable. CI success is reported
 separately from local tests; no CI status is assumed before GitHub runs it.
+
+## CI follow-up
+
+The first Linux CI run exposed a legacy filmstrip resize/scroll race: a queued
+resize restored the old offset after the user explicitly scrolled to zero.
+Preserve the explicit start boundary during reflow. The original 2000-item
+assertion remains unchanged. Final CI result is available on PR #2.
