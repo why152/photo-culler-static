@@ -245,10 +245,10 @@ test("Review Workspace restores valid review decisions when the same directory i
   });
 });
 
-test("Review Workspace only resumes the last directory after it regains read-write permission", async () => {
+test("Review Workspace only resumes the last directory after it regains read permission", async () => {
   const source = directoryHandle("camera-import", [fileHandle("P1000001.JPG")]);
   source.requestPermission = async ({ mode }) =>
-    mode === "readwrite" ? "granted" : "denied";
+    mode === "read" ? "granted" : "denied";
   const reviewStore = {
     async load() {
       return null;

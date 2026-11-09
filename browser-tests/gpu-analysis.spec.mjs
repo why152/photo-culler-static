@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("experimental GPU scorer has an explicit CPU fallback and rejects malformed pixels", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const result = await page.evaluate(async () => {
     const { ExperimentalGpuScorer } = await import("/modules/photo-analysis-gpu.js");
     const { scorePixels } = await import("/modules/photo-analysis-worker.js");
@@ -24,7 +24,7 @@ test("experimental GPU scorer has an explicit CPU fallback and rejects malformed
 });
 
 test("integer WebGPU reduction matches CPU technical scores across regions and rounding boundaries", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const result = await page.evaluate(async () => {
     const { ExperimentalGpuScorer } = await import("/modules/photo-analysis-gpu.js");
     const { scorePixels } = await import("/modules/photo-analysis-worker.js");
@@ -68,7 +68,7 @@ test("integer WebGPU reduction matches CPU technical scores across regions and r
 });
 
 test("GPU external Canvas upload preserves transparent pixel semantics and device loss falls back", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const result = await page.evaluate(async () => {
     const { ExperimentalGpuScorer } = await import("/modules/photo-analysis-gpu.js");
     const { scorePixels } = await import("/modules/photo-analysis-worker.js");

@@ -18,7 +18,7 @@ async function setup(page) {
       }
     };
   });
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory();
     const source = await root.getDirectoryHandle(`progressive-${crypto.randomUUID()}`, { create: true });

@@ -31,7 +31,7 @@ test("Photo Viewer zooms with the wheel, pans with drag, and resets with keyboar
     if (message.type() === "error") errors.push(message.text());
   });
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createPhotoSource(page, sourceName);
 
   await page.getByRole("button", { name: "选择照片文件夹" }).click();
@@ -95,7 +95,7 @@ test("Photo Viewer zoom buttons and double-click toggle, and zoom resets when th
     if (message.type() === "error") errors.push(message.text());
   });
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createPhotoSource(page, sourceName);
 
   await page.getByRole("button", { name: "选择照片文件夹" }).click();

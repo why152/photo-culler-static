@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 async function openSource(page, count = 3, paired = false) {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async ({ count, paired }) => {
     const root = await navigator.storage.getDirectory();
     const source = await root.getDirectoryHandle(`usability-${crypto.randomUUID()}`, { create: true });

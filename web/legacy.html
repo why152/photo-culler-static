@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Photo Culler — 本地照片筛选与审核工具</title>
+    <meta
+      name="description"
+      content="Photo Culler 在浏览器本地扫描 JPEG/PNG/WEBP 照片，支持人工精选、保留、建议移出与可恢复的批量移动；照片不会离开你的电脑。"
+    />
+    <link rel="canonical" href="https://why152.github.io/photo-culler-static/" />
+    <meta name="theme-color" content="#000000" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Photo Culler" />
+    <meta
+      property="og:title"
+      content="Photo Culler — 本地照片筛选与审核工具"
+    />
+    <meta
+      property="og:description"
+      content="Photo Culler 在浏览器本地扫描 JPEG/PNG/WEBP 照片，支持人工精选、保留、建议移出与可恢复的批量移动；照片不会离开你的电脑。"
+    />
+    <meta
+      property="og:url"
+      content="https://why152.github.io/photo-culler-static/"
+    />
+    <meta property="og:locale" content="zh_CN" />
+    <meta
+      property="og:image"
+      content="https://why152.github.io/photo-culler-static/og-image.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Photo Culler 本地照片筛选与审核工具"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Photo Culler — 本地照片筛选与审核工具"
+    />
+    <meta
+      name="twitter:description"
+      content="Photo Culler 在浏览器本地扫描 JPEG/PNG/WEBP 照片，支持人工精选、保留、建议移出与可恢复的批量移动；照片不会离开你的电脑。"
+    />
+    <meta
+      name="twitter:image"
+      content="https://why152.github.io/photo-culler-static/og-image.png"
+    />
+    <link rel="stylesheet" href="./site.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Photo Culler",
+        "alternateName": "Photo Culler 本地照片筛选工具",
+        "description": "Photo Culler 在浏览器本地扫描 JPEG/PNG/WEBP 照片，支持人工精选、保留、建议移出与可恢复的批量移动；照片不会离开你的电脑。",
+        "url": "https://why152.github.io/photo-culler-static/",
+        "applicationCategory": "PhotographyApplication",
+        "operatingSystem": "macOS, Windows, Linux",
+        "browserRequirements": "Requires a secure context and the File System Access API (Chrome or Edge).",
+        "inLanguage": "zh-CN",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <a href="./index.html" style="display:block;padding:12px 24px;color:inherit">← 2.0 自动连拍筛选（Beta）</a>
+    <noscript>
+      <p class="noscript-seo-copy">
+        Photo Culler 在浏览器本地扫描并审核 JPEG/PNG/WEBP 照片，支持人工精选、保留、建议移出与可恢复的批量移动；照片不会离开你的电脑。
+      </p>
+    </noscript>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="app-title">
+          <span class="app-symbol" aria-hidden="true">⌘</span>
+          <h1>Photo Culler</h1>
+        </div>
+        <div class="header-actions">
+          <button
+            id="moved-groups-button"
+            class="secondary-action"
+            type="button"
+            disabled
+            hidden
+          >
+            已移动 <span id="moved-count">0</span>
+          </button>
+          <button
+            id="resume-folder"
+            class="secondary-action"
+            type="button"
+            hidden
+          >
+            继续上次筛选
+          </button>
+          <button id="choose-folder" class="primary-action" type="button" hidden>
+            选择其他文件夹
+          </button>
+        </div>
+      </header>
+      <section
+        id="operation-feedback"
+        class="operation-feedback"
+        role="status"
+        aria-label="操作进度"
+        aria-live="polite"
+        data-mode="idle"
+        hidden
+      >
+        <span id="operation-indicator" class="operation-indicator" aria-hidden="true"></span>
+        <div class="operation-copy">
+          <p id="operation-title">本机处理</p>
+          <p id="workspace-status">照片只会在你的电脑上读取和处理。</p>
+        </div>
+        <div
+          id="operation-progress"
+          class="operation-progress"
+          role="progressbar"
+          aria-label="当前操作进度"
+          aria-valuetext="当前没有进行中的操作"
+        >
+          <span id="operation-progress-value"></span>
+        </div>
+      </section>
+      <p id="capability-status" class="capability-status" hidden>
+        正在检查浏览器能力…
+      </p>
+      <p
+        id="interaction-status"
+        class="interaction-status"
+        role="status"
+        aria-label="浏览反馈"
+        aria-live="polite"
+        hidden
+      ></p>
+      <section
+        id="empty-state"
+        class="directory-entry"
+        aria-labelledby="directory-entry-title"
+      >
+        <span class="directory-entry-icon" aria-hidden="true">▦</span>
+        <h2 id="directory-entry-title">开始筛选照片</h2>
+        <p>选择一个由相机导入的照片文件夹。</p>
+        <button
+          id="empty-choose-folder"
+          class="primary-action directory-entry-action"
+          type="button"
+          aria-describedby="directory-entry-privacy"
+        >
+          选择照片文件夹
+        </button>
+        <small id="directory-entry-privacy">照片仅在这台设备上读取和处理。</small>
+      </section>
+      <section id="workbench" hidden>
+        <div class="command-bar">
+          <div class="filter-group" role="group" aria-label="筛选">
+            <button class="filter active" type="button" data-filter="all">
+              全部</button
+            ><button class="filter" type="button" data-filter="unreviewed">
+              未筛</button
+            ><button class="filter" type="button" data-filter="pick">
+              精选</button
+            ><button class="filter" type="button" data-filter="keep">
+              保留</button
+            ><button class="filter" type="button" data-filter="reject">
+              建议移出
+            </button>
+          </div>
+          <div class="density-group" role="group" aria-label="缩略图密度">
+            <button class="density active" type="button" data-density="compact">
+              紧凑</button
+            ><button class="density" type="button" data-density="comfortable">
+              舒展
+            </button>
+          </div>
+        </div>
+        <section
+          id="photo-grid"
+          class="photo-grid density-compact"
+          aria-label="照片组"
+        ></section>
+      </section>
+      <section
+        id="moved-panel"
+        class="moved-panel"
+        hidden
+        aria-label="已移动的照片组"
+      >
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">RECOVERABLE REVIEW BATCHES</p>
+            <h2>已移动</h2>
+          </div>
+          <button
+            id="close-moved-button"
+            class="secondary-action"
+            type="button"
+          >
+            关闭
+          </button>
+        </div>
+        <div id="moved-batch-list" class="moved-batch-list"></div>
+      </section>
+      <section
+        id="photo-viewer"
+        class="photo-viewer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Photo Viewer"
+        tabindex="-1"
+        hidden
+      >
+        <header class="photo-viewer-toolbar">
+          <button id="viewer-close" class="secondary-action" type="button">
+            关闭大图
+          </button>
+          <p id="viewer-position" class="viewer-position" aria-live="polite"></p>
+          <div class="viewer-zoom-actions" role="group" aria-label="缩放">
+            <button id="viewer-zoom-out" type="button" aria-label="缩小" title="缩小">
+              −
+            </button>
+            <span
+              id="viewer-zoom-label"
+              class="viewer-zoom-label"
+              role="status"
+              aria-live="polite"
+            >
+              100%
+            </span>
+            <button id="viewer-zoom-in" type="button" aria-label="放大" title="放大">
+              +
+            </button>
+            <button
+              id="viewer-zoom-reset"
+              type="button"
+              aria-label="适合窗口"
+              title="适合窗口 (Ctrl/⌘0)"
+            >
+              ⤢
+            </button>
+          </div>
+          <div class="viewer-summary">
+            <p id="viewer-kicker" class="eyebrow"></p>
+            <h2 id="viewer-name"></h2>
+          </div>
+          <div class="viewer-review-actions" aria-label="审核决定">
+            <button id="viewer-pick" type="button">精选 <kbd>1</kbd></button>
+            <button id="viewer-keep" type="button">保留 <kbd>2</kbd></button>
+            <button id="viewer-reject" type="button">建议移出 <kbd>X</kbd></button>
+            <button id="viewer-clear-decision" type="button">
+              取消决定 <kbd>0</kbd>
+            </button>
+          </div>
+        </header>
+        <div class="photo-viewer-stage">
+          <button
+            id="viewer-previous"
+            class="viewer-navigation"
+            type="button"
+            aria-label="上一张"
+          >
+            ←
+          </button>
+          <figure class="viewer-figure">
+            <div id="viewer-image-frame" class="viewer-image-frame" aria-busy="false">
+              <p id="viewer-image-status" class="viewer-image-status" role="status" hidden>
+                正在呈现照片…
+              </p>
+              <img id="viewer-image" class="viewer-image" alt="" decoding="async" />
+            </div>
+            <figcaption id="viewer-reasons" class="viewer-reasons"></figcaption>
+          </figure>
+          <button
+            id="viewer-next"
+            class="viewer-navigation"
+            type="button"
+            aria-label="下一张"
+          >
+            →
+          </button>
+        </div>
+        <footer class="photo-viewer-footer">
+          <div id="viewer-filmstrip" class="viewer-filmstrip" aria-label="当前筛选结果"></div>
+          <p class="keyboard-tip">
+            ← / → 相邻浏览 · Space / J 下一张未筛 · 滚轮 / ± 缩放 · 拖拽平移 · Esc 关闭大图
+          </p>
+        </footer>
+      </section>
+    </main>
+    <footer id="review-rail" class="review-rail" hidden>
+      <span id="review-count">未打开文件夹</span>
+      <section
+        id="action-selection-bar"
+        class="action-selection-bar"
+        aria-label="批量选择"
+        hidden
+      >
+        <span id="action-selection-count">已选 0 个照片组</span>
+        <p
+          id="action-operation-feedback"
+          class="action-operation-feedback"
+          role="status"
+          aria-label="文件操作进度"
+          aria-live="polite"
+          hidden
+        >
+          <strong id="action-operation-title"></strong>
+          <span id="action-operation-detail"></span>
+        </p>
+        <button
+          id="select-suggested-removals"
+          class="secondary-action"
+          type="button"
+          hidden
+        >
+          选择全部建议移出
+        </button>
+        <button id="clear-action-selection" class="secondary-action" type="button">
+          取消选择
+        </button>
+        <button id="move-button" class="move-action" type="button" disabled>
+          移动已选项
+        </button>
+      </section>
+    </footer>
+    <script type="module" src="./site.js"></script>
+  </body>
+</html>

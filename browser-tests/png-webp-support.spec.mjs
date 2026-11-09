@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 async function createMixedPhotoSource(page, sourceName) {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async (name) => {
     const root = await navigator.storage.getDirectory();
     const source = await root.getDirectoryHandle(name, { create: true });
@@ -77,7 +77,7 @@ test("a JPEG-first stem keeps JPEG as the analysis source beside PNG and WEBP me
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
   });
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async (name) => {
     const root = await navigator.storage.getDirectory();
     const source = await root.getDirectoryHandle(name, { create: true });

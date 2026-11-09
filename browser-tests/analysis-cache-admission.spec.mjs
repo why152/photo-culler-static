@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("over-capacity reopens preserve resident analysis hits with bounded cache admission", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const result = await page.evaluate(async () => {
     const { BrowserReviewStore } = await import("/modules/browser-store.js");
     const { BrowserPhotoAnalyzer } = await import("/modules/photo-analysis.js");
@@ -105,7 +105,7 @@ test("over-capacity reopens preserve resident analysis hits with bounded cache a
 });
 
 test("early new analysis sources consume global free capacity without evicting future hits", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const result = await page.evaluate(async () => {
     const { BrowserReviewStore } = await import("/modules/browser-store.js");
     const { BrowserPhotoAnalyzer } = await import("/modules/photo-analysis.js");

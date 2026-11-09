@@ -1,7 +1,7 @@
 import { PHOTO_ANALYSIS_VERSION } from "./photo-analysis-version.js";
 
 const DATABASE_NAME = "photo-culler-local";
-const DATABASE_VERSION = 3;
+const DATABASE_VERSION = 4;
 const WORKSPACE_STORE = "workspace";
 const ANALYSIS_STORE = "analysis";
 const DIRECTORY_IDENTITIES_STORE = "directory-identities";
@@ -116,14 +116,15 @@ export class BrowserReviewStore {
     this.directoryIdentityLimit = analysisCacheLimit + 32;
     this.database = new Promise((resolve, reject) => {
       const request = indexedDB.open(databaseName, DATABASE_VERSION);
-      request.addEventListener("upgradeneeded", () => {
+      request.addEventListener("upgradeneeded", (event) => {
         const database = request.result;
         if (!database.objectStoreNames.contains(WORKSPACE_STORE))
           database.createObjectStore(WORKSPACE_STORE);
         const analysisStore = database.objectStoreNames.contains(ANALYSIS_STORE)
           ? request.transaction.objectStore(ANALYSIS_STORE)
           : database.createObjectStore(ANALYSIS_STORE);
-        migrateAnalysisStore(analysisStore);
+        if (event.oldVersion < 3) migrateAnalysisStore(analysisStore);
+        if (!database.objectStoreNames.contains("cull-sessions")) database.createObjectStore("cull-sessions");
         if (!database.objectStoreNames.contains(DIRECTORY_IDENTITIES_STORE))
           database.createObjectStore(DIRECTORY_IDENTITIES_STORE);
       });
@@ -163,48 +164,55 @@ export class BrowserReviewStore {
     await transactionDone(transaction);
   }
 
-  async rememberDirectory(directory) {
-    const existing = await this.read(WORKSPACE_STORE, LAST_DIRECTORY_KEY);
-    const sameDirectory =
-      existing?.directory &&
-      typeof existing.directory.isSameEntry === "function"
-        ? await existing.directory.isSameEntry(directory)
-        : false;
-    await this.write(WORKSPACE_STORE, LAST_DIRECTORY_KEY, {
-      directory,
-      review: sameDirectory ? existing.review : null,
+  async listSessions() {
+    const database = await this.database;
+    const transaction = database.transaction("cull-sessions", "readonly");
+    const done = transactionDone(transaction);
+    const entries = await requestAsPromise(transaction.objectStore("cull-sessions").getAll());
+    await done;
+    return entries.sort((a,b) => b.updatedAt-a.updatedAt);
+  }
+
+  async session(directory) {
+    const id = await this.#directoryId(directory);
+    return serializeIdentity(this.databaseName + ":sessions", async () => {
+      let session = await this.read("cull-sessions", id);
+      if (!session) {
+        const legacy = await this.read(WORKSPACE_STORE, LAST_DIRECTORY_KEY);
+        const same = legacy?.directory && await legacy.directory.isSameEntry(directory);
+        session = { id, directory, name: directory.name, review: same ? legacy.review : null,
+          human: {}, updatedAt: Date.now(), version: 2 };
+        await this.write("cull-sessions", id, session);
+      }
+      return session;
     });
+  }
+
+  async saveSession(directory, patch) {
+    const { id } = await this.session(directory);
+    return serializeIdentity(this.databaseName + ":sessions", async () => {
+      const session = await this.read("cull-sessions", id);
+      const next = { ...session, ...patch, id, directory, updatedAt: Date.now(), version: 2 };
+      await this.write("cull-sessions", id, next);
+      return next;
+    });
+  }
+
+  async rememberDirectory(directory) {
+    await this.session(directory); // Capture legacy before updating the pointer.
+    const review = (await this.session(directory)).review;
+    await this.write(WORKSPACE_STORE, LAST_DIRECTORY_KEY, { directory, review });
   }
 
   async loadLastDirectory() {
-    return (
-      (await this.read(WORKSPACE_STORE, LAST_DIRECTORY_KEY))?.directory ?? null
-    );
+    return (await this.read(WORKSPACE_STORE, LAST_DIRECTORY_KEY))?.directory ?? null;
   }
 
-  async load(directory) {
-    const existing = await this.read(WORKSPACE_STORE, LAST_DIRECTORY_KEY);
-    if (
-      !existing?.directory ||
-      typeof existing.directory.isSameEntry !== "function"
-    )
-      return null;
-    return (await existing.directory.isSameEntry(directory))
-      ? existing.review
-      : null;
-  }
+  async load(directory) { return (await this.session(directory)).review; }
 
   async save(directory, review) {
-    const existing = await this.read(WORKSPACE_STORE, LAST_DIRECTORY_KEY);
-    const sameDirectory =
-      existing?.directory &&
-      typeof existing.directory.isSameEntry === "function"
-        ? await existing.directory.isSameEntry(directory)
-        : false;
-    await this.write(WORKSPACE_STORE, LAST_DIRECTORY_KEY, {
-      directory: sameDirectory ? existing.directory : directory,
-      review,
-    });
+    await this.saveSession(directory, { review });
+    await this.write(WORKSPACE_STORE, LAST_DIRECTORY_KEY, { directory, review });
   }
 
   async #directoryId(directory) {
@@ -247,19 +255,20 @@ export class BrowserReviewStore {
 
   async #pruneDirectoryIdentities(retainedId) {
     const database = await this.database;
-    const transaction = database.transaction([DIRECTORY_IDENTITIES_STORE, ANALYSIS_STORE], "readwrite");
+    const transaction = database.transaction([DIRECTORY_IDENTITIES_STORE, ANALYSIS_STORE, "cull-sessions"], "readwrite");
     const done = transactionDone(transaction);
     const identities = transaction.objectStore(DIRECTORY_IDENTITIES_STORE);
     const entriesRequest = requestAsPromise(identities.getAll());
     const keysRequest = requestAsPromise(transaction.objectStore(ANALYSIS_STORE).getAllKeys());
     const [entries, keys] = await Promise.all([entriesRequest, keysRequest]);
+    const sessionIds = new Set(await requestAsPromise(transaction.objectStore("cull-sessions").getAllKeys()));
     const cachedIds = new Set(keys.map((key) => JSON.parse(key)[0]));
     let excess = entries.length - this.directoryIdentityLimit;
     for (const entry of entries.sort((left, right) => (left.createdAt ?? 0) - (right.createdAt ?? 0))) {
       if (excess <= 0) break;
       // Keep every cached namespace and the scope being resolved. Pruning an
       // old orphan only causes a cache miss if that directory is opened again.
-      if (entry.id === retainedId || cachedIds.has(entry.id)) continue;
+      if (entry.id === retainedId || cachedIds.has(entry.id) || sessionIds.has(entry.id)) continue;
       identities.delete(entry.id);
       excess -= 1;
     }

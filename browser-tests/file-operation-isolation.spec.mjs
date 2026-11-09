@@ -50,7 +50,7 @@ async function moveSelected(page, filename) {
 
 test("a completed move survives review-store failure, reconciles the grid, and retries the normalized review", async ({ page }) => {
   const name = `file-save-failure-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createSource(page, name);
   for (const filename of ["ONE.JPG", "TWO.JPG"]) {
     await page.locator(`[id="photo-card:photo-group:${filename.slice(0, -4)}"]`).click();
@@ -106,7 +106,7 @@ test("a completed move survives review-store failure, reconciles the grid, and r
 
 test("pending member movement blocks duplicate file actions and directory switching in the UI", async ({ page }) => {
   const name = `file-operation-lock-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await createSource(page, name);
   await moveSelected(page, "ONE.JPG");
   await expect(page.locator(".photo-card")).toHaveCount(1);

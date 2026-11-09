@@ -179,6 +179,7 @@ export async function analyzeFile(file, timing = new AnalysisTiming(), onPreview
 
 if (typeof DedicatedWorkerGlobalScope !== "undefined" && self instanceof DedicatedWorkerGlobalScope) {
   self.addEventListener("message", async (event) => {
+    if (event.data.protocol === "cull-v2") return;
     const timing = new AnalysisTiming(Boolean(event.data.diagnostics));
     const result = await analyzeFile(event.data.file, timing, event.data.preview ? (thumbnail) => {
       self.postMessage({ id: event.data.id, type: "preview", thumbnail });

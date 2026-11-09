@@ -302,7 +302,7 @@ export class ReviewWorkspace {
   constructor({
     pickDirectory = () =>
       window.showDirectoryPicker({
-        mode: "readwrite",
+        mode: "read",
         id: "photo-culler-source",
       }),
     reviewStore = { load: async () => null, save: async () => {} },
@@ -395,6 +395,11 @@ export class ReviewWorkspace {
     this.analysisController?.abort(abortError());
     const analysisController = new AbortController();
     this.analysisController = analysisController;
+    let nativeMoveVerified = false;
+    try {
+      const opfs = await globalThis.navigator?.storage?.getDirectory();
+      nativeMoveVerified = !!opfs && ((await opfs.isSameEntry(directory)) || (await opfs.resolve(directory)) !== null);
+    } catch { /* Real external movement remains disabled until platform acceptance. */ }
     const scannedPhotoGroups = await scanPhotoGroups(directory);
     throwIfAborted(analysisController.signal);
     const photoGroups = withPendingAnalysis(scannedPhotoGroups);
@@ -406,6 +411,7 @@ export class ReviewWorkspace {
     const current = {
       directory,
       directoryName: directory.name,
+      nativeMoveVerified,
       photoGroups,
       review,
       movedBatches,
@@ -484,9 +490,9 @@ export class ReviewWorkspace {
       const directory = await this.reviewStore.loadLastDirectory?.();
       if (!directory) throw new Error("没有可继续的上次照片文件夹。");
       if (typeof directory.requestPermission === "function") {
-        const permission = await directory.requestPermission({ mode: "readwrite" });
+        const permission = await directory.requestPermission({ mode: "read" });
         if (permission !== "granted")
-          throw new Error("需要重新授予该照片文件夹的读写权限。");
+          throw new Error("需要重新授予该照片文件夹的读取权限。");
       }
       return this.#openDirectoryContents(directory, options);
     });

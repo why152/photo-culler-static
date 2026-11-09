@@ -30,7 +30,7 @@ async function prepareDelayedPhotoSource(
       }
     };
   }, analysisDelay);
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async ([name, count]) => {
     const root = await navigator.storage.getDirectory();
     const source = await root.getDirectoryHandle(name, { create: true });
@@ -116,7 +116,7 @@ test("the content shell follows the system appearance while Photo Viewer keeps a
   page,
 }) => {
   await page.emulateMedia({ colorScheme: "light" });
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await expect(page.locator("body")).toHaveCSS(
     "background-color",
     "rgb(245, 245, 247)",
@@ -186,7 +186,7 @@ test("explicit recoverable move and restore report their own photo group progres
       return nativeMove.apply(this, args);
     };
   });
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async (name) => {
     const root = await navigator.storage.getDirectory();
     const source = await root.getDirectoryHandle(name, { create: true });
@@ -265,7 +265,7 @@ test("viewer boundary feedback stays separate from a completed operation", async
 
 test("Photo Viewer exposes and completes a local image presentation state", async ({ page }) => {
   const sourceName = `photo-culler-viewer-feedback-${crypto.randomUUID()}`;
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async (name) => {
     const root = await navigator.storage.getDirectory();
     const source = await root.getDirectoryHandle(name, { create: true });

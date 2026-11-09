@@ -5,7 +5,7 @@ test("static workbench uses Chrome's real local file APIs without photo network 
 }) => {
   const requests = [];
   page.on("request", (request) => requests.push(request.url()));
-  await page.goto("/");
+  await page.goto("/legacy.html");
 
   await expect(
     page.getByRole("button", { name: "选择照片文件夹" }),

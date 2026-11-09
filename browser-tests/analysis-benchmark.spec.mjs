@@ -4,7 +4,7 @@ import { writeFile } from "node:fs/promises";
 test("opt-in synthetic camera-size analysis benchmark", async ({ page }) => {
   test.skip(!process.env.PHOTO_CULLER_BENCHMARK, "Opt-in generated-fixture benchmark");
   test.setTimeout(180_000);
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const report = await page.evaluate(async () => {
     const { BrowserPhotoAnalyzer } = await import("/modules/photo-analysis.js");
     const { BrowserReviewStore } = await import("/modules/browser-store.js");

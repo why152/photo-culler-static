@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("native resized JPEG decode respects EXIF quarter-turns and preserves long edge", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/legacy.html");
   const dimensions = await page.evaluate(async () => {
     const { decodeBitmap } = await import("/modules/photo-analysis-worker.js");
     const canvas = new OffscreenCanvas(2400,1200);
@@ -39,7 +39,7 @@ test("production directory reopen reuses the scoped analysis cache", async ({ pa
       return post.call(this,message,...args);
     };
   });
-  await page.goto("/");
+  await page.goto("/legacy.html");
   await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory();
     const directory = await root.getDirectoryHandle(`cache-production-${crypto.randomUUID()}`,{create:true});
