@@ -2,25 +2,35 @@ name: Test static application
 on:
   pull_request:
   push:
-    branches: ['codex/**']
+    branches: ["codex/**"]
 permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            channel: chrome
+          - os: windows-latest
+            channel: msedge
+    runs-on: ${{ matrix.os }}
+    env:
+      PW_CHANNEL: ${{ matrix.channel }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chrome
+      - run: npx playwright install --with-deps ${{ matrix.channel }}
       - run: npm run check
       - run: npm test
       - run: npm run test:dist
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: test-results
+          name: test-results-${{ matrix.os }}
           path: test-results/

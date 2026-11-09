@@ -72,19 +72,65 @@ export function publicManifest(plan) {
   };
 }
 export function reviewCSV(plan) {
-  const cell = (v) => '"' + String(v ?? "").replaceAll('"', '""') + '"';
-  return (
-    "\ufeff" +
-    [
-      ["source", "destination", "decision", "status", "sha256", "error"],
-      ...plan.records.map((r) => [
+  // Report every reviewed member, including suppressed and protected groups.
+  // Prefix spreadsheet formulas without changing source/destination paths on disk.
+  const cell = (value) => {
+    let text = String(value ?? "");
+    if (/^[\s]*[=+@-]/.test(text) || /^[\t\r]/.test(text)) text = "'" + text;
+    return '"' + text.replaceAll('"', '""') + '"';
+  };
+  const records = new Map(
+    plan.records.map((record) => [record.source, record]),
+  );
+  const rows = plan.groups
+    ? plan.groups.flatMap((group) =>
+        group.members.map((member) => {
+          const record = records.get(member.path);
+          return [
+            member.path,
+            record?.destination,
+            group.decision,
+            record?.status ?? "not-exported",
+            record?.sourceSHA,
+            record?.error,
+            group.id,
+            group.human?.decision,
+            group.human?.favorite ?? false,
+            group.machine?.plan,
+            group.machine?.reasons?.join("; "),
+          ];
+        }),
+      )
+    : plan.records.map((r) => [
         r.source,
         r.destination,
         r.decision,
         r.status,
         r.sourceSHA,
         r.error,
-      ]),
+        r.groupId,
+        r.human?.decision,
+        r.human?.favorite,
+        r.machine?.plan,
+        r.machine?.reasons?.join("; "),
+      ]);
+  return (
+    "\ufeff" +
+    [
+      [
+        "source",
+        "destination",
+        "decision",
+        "status",
+        "sha256",
+        "error",
+        "groupId",
+        "humanDecision",
+        "favorite",
+        "machinePlan",
+        "reasons",
+      ],
+      ...rows,
     ]
       .map((row) => row.map(cell).join(","))
       .join("\r\n")

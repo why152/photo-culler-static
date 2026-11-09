@@ -3,10 +3,11 @@ import { imageDimensions, dimensionsWithin, orientedDimensions } from "./image-d
 
 const ANALYSIS_LONG_EDGE = 1600;
 const THUMBNAIL_EDGE = 420;
-export async function decodeBitmap(file, timing = new AnalysisTiming()) {
+export async function decodeBitmap(file, timing = new AnalysisTiming(), onDimensions) {
   const metadata = await timing.measureAsync("metadata", () => imageDimensions(file));
   if (metadata) {
     const dimensions = orientedDimensions(metadata);
+    onDimensions?.(dimensions);
     const target = dimensionsWithin(ANALYSIS_LONG_EDGE, dimensions.width, dimensions.height);
     if (target.width !== dimensions.width || target.height !== dimensions.height) {
       try {
@@ -17,7 +18,9 @@ export async function decodeBitmap(file, timing = new AnalysisTiming()) {
       }
     }
   }
-  return timing.measureAsync("decode", () => createImageBitmap(file, { imageOrientation: "from-image" }));
+  const bitmap = await timing.measureAsync("decode", () => createImageBitmap(file, { imageOrientation: "from-image" }));
+  if (!metadata) onDimensions?.({width:bitmap.width,height:bitmap.height});
+  return bitmap;
 }
 
 function laplacianVariances(gray, width, height) {
@@ -116,9 +119,9 @@ export function scoreStatistics(globalVariance, localVariance, darkCount, bright
 }
 
 export async function analyzeFile(file, timing = new AnalysisTiming(), onPreview) {
-  let bitmap;
+  let bitmap, sourceDimensions;
   try {
-    bitmap = await decodeBitmap(file, timing);
+    bitmap = await decodeBitmap(file, timing, dimensions => {sourceDimensions=dimensions;});
     const analysisSize = dimensionsWithin(
       ANALYSIS_LONG_EDGE,
       bitmap.width,
@@ -162,7 +165,7 @@ export async function analyzeFile(file, timing = new AnalysisTiming(), onPreview
       ).data);
     const result = timing.measure("score", () => scorePixels(pixels,
       analysisSize.width, analysisSize.height));
-    return { ...result, thumbnail };
+    return { ...result, thumbnail, sourceDimensions };
   } catch (error) {
     return {
       status: "review",

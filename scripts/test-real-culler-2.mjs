@@ -1,6 +1,14 @@
 // Read source only. All browser writes are confined to a fresh temporary OPFS profile.
 import { chromium, expect } from "@playwright/test";
-import { readdir, stat, mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import {
+  readdir,
+  stat,
+  mkdtemp,
+  mkdir,
+  writeFile,
+  readFile,
+  rm,
+} from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve, relative, join, extname, sep, isAbsolute } from "node:path";
@@ -11,6 +19,9 @@ if (!process.argv[2])
     "Usage: node scripts/test-real-culler-2.mjs SOURCE_DIRECTORY [OUTPUT_JSON]",
   );
 const source = resolve(process.argv[2]);
+const port = process.env.PORT ?? "4178";
+const proxyPath = process.env.CULLER_PROXY_LABELS;
+const proxy = proxyPath ? JSON.parse(await readFile(proxyPath, "utf8")) : null;
 const reportPath = resolve(
   process.argv[3] ?? "output/culler-2-real-acceptance.json",
 );
@@ -92,10 +103,10 @@ try {
   };
   profile = await mkdtemp("/private/tmp/photo-culler-2-real-");
   server = spawn(process.execPath, ["scripts/dist-test-server.mjs"], {
-    env: { ...process.env, PORT: "4178" },
+    env: { ...process.env, PORT: port },
     stdio: "ignore",
   });
-  const base = "http://127.0.0.1:4178";
+  const base = "http://127.0.0.1:" + port;
   for (let i = 0; i < 100; i++) {
     if (
       await fetch(base + "/photo-culler-static/")
@@ -175,9 +186,14 @@ try {
     input.id = "real-files";
     document.body.append(input);
   });
+  const fixtureFiles = proxy
+    ? before.filter((f) =>
+        proxy.labels.some((label) => label.relativePath === f.path),
+      )
+    : before;
   await page
     .locator("#real-files")
-    .setInputFiles(before.map((f) => join(source, f.path)));
+    .setInputFiles(fixtureFiles.map((f) => join(source, f.path)));
   report.copy = await page.evaluate(async (manifest) => {
     const started = performance.now(),
       storage = await navigator.storage.getDirectory(),
@@ -242,7 +258,7 @@ try {
       milliseconds: performance.now() - started,
       allHashesVerified: true,
     };
-  }, before);
+  }, fixtureFiles);
   const t = performance.now();
   await page.locator("#choose").click();
   await expect(page.locator(".card").first()).toBeVisible({ timeout: 120000 });
@@ -316,170 +332,15 @@ try {
       cards: document.querySelectorAll(".card").length,
     };
   });
-  const expectedGroups = new Map();
-  for (const file of before) {
-    if (
-      !/\.(jpe?g|png|webp|heic|heif|rw2|raw|cr2|cr3|nef|arw|dng|orf|raf|xmp|mov|mp4|m4v|avi)$/i.test(
-        file.path,
-      )
-    )
-      continue;
-    const stem = file.path.replace(/\.[^/.]+$/, "");
-    const members = expectedGroups.get(stem) ?? [];
-    members.push(file.path);
-    expectedGroups.set(stem, members);
-  }
-  report.expected = {
-    groups: expectedGroups.size,
-    imageGroups: [...expectedGroups.values()].filter((m) =>
-      m.some((p) => /\.(jpe?g|png|webp|heic|heif)$/i.test(p)),
-    ).length,
-  };
-  assert.equal(report.analysis.cached, report.expected.imageGroups);
-  assert.ok(report.analysis.cards <= 60);
-  await page.locator(".card img").first().click();
-  await page.locator("#zoom-one").click();
-  await expect
-    .poll(() =>
-      page.locator(".compare-frame img").evaluate((img) => {
-        const frame = img.parentElement.getBoundingClientRect();
-        return (
-          Math.min(
-            frame.width / img.naturalWidth,
-            frame.height / img.naturalHeight,
-          ) * new DOMMatrix(getComputedStyle(img).transform).a
-        );
-      }),
-    )
-    .toBeCloseTo(1, 2);
-  report.viewer = await page
-    .locator(".compare-frame img")
-    .evaluate((img) => ({
-      width: img.naturalWidth,
-      height: img.naturalHeight,
-    }));
-  await page.keyboard.press("Escape");
-  await page.locator("#accept").click();
-  await expect(page.locator("#export-space")).toBeVisible();
-  report.plan = await page.evaluate(() => ({
-    summary: document.querySelector("#plan").textContent,
-    detail: JSON.parse(document.querySelector("#unprocessed").textContent),
-  }));
-  report.defaultPlan = report.plan;
-  await page.locator("#include-protected").check();
-  report.plan = await page.evaluate(() => ({
-    summary: document.querySelector("#plan").textContent,
-    detail: JSON.parse(document.querySelector("#unprocessed").textContent),
-  }));
-  report.explicitProtectedInclusion = true;
-  // Cancel once before writing: the target must remain entirely empty.
-  await page.locator("#target").click();
-  await page.locator("#copy").click();
-  await page.locator("#confirm-cancel").click();
-  assert.equal(
-    await page.evaluate(
-      async () => (await Array.fromAsync(window.__output.values())).length,
-    ),
-    0,
-  );
-  report.cancelBeforeWrite = true;
-  await page.locator("#copy").click();
-  await page.locator("#confirm-copy").click();
-  let last = "";
-  for (let i = 0; i < 3600; i++) {
-    const value = await page.locator("#feedback").textContent();
-    if (i % 20 === 0 && value !== last) {
-      last = value;
-      log("REAL2 " + value);
-    }
-    if (value.includes("已复制并校验")) break;
-    if (value.includes("导出未完成")) throw new Error(value);
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-  await expect(page.locator("#feedback")).toContainText("已复制并校验");
-  report.export = await page.evaluate(async (original) => {
-    const outputs = await Array.fromAsync(window.__output.values());
-    if (outputs.length !== 1) throw new Error("Expected one output directory");
-    const output = outputs[0];
-    const reports = await output.getDirectoryHandle("Reports");
-    const manifest = JSON.parse(
-      await (
-        await (await reports.getFileHandle("manifest.json")).getFile()
-      ).text(),
+  if (proxy) {
+    report.scope =
+      "AI-proxy quality comparison on read-only source JPEG copies, all source bytes hashed before/after; no export and no human-preference acceptance claim.";
+    await page.locator("#benchmark-open").click();
+    await page.locator("#benchmark-import").setInputFiles(resolve(proxyPath));
+    await expect(page.locator("#feedback")).toContainText(
+      "已导入 " + fixtureFiles.length + " 个 AI 代理标签",
     );
-    const expected = new Map(original.map((f) => [f.path, f.sha256]));
-    let verified = 0;
-    for (const record of manifest.records) {
-      if (
-        record.sourceSHA !== record.destinationSHA ||
-        record.sourceSHA !== expected.get(record.source)
-      )
-        throw new Error("Export SHA does not match original baseline");
-      verified++;
-    }
-    const groupMembers = new Map();
-    for (const file of original) {
-      if (
-        !/\.(jpe?g|png|webp|heic|heif|rw2|raw|cr2|cr3|nef|arw|dng|orf|raf|xmp|mov|mp4|m4v|avi)$/i.test(
-          file.path,
-        )
-      )
-        continue;
-      const id = "group:" + file.path.replace(/\.[^/.]+$/, "");
-      const list = groupMembers.get(id) ?? [];
-      list.push(file.path);
-      groupMembers.set(id, list);
-    }
-    const exported = new Set(manifest.records.map((r) => r.source));
-    for (const record of manifest.records)
-      for (const path of groupMembers.get(record.groupId) ?? [])
-        if (!exported.has(path)) throw new Error("Companion member split");
-    let videoGroups = 0,
-      protectedIncluded = 0;
-    for (const group of manifest.groups) {
-      const members = groupMembers.get(group.id) ?? [];
-      if (members.some((p) => /\.(mov|mp4|m4v|avi)$/i.test(p))) {
-        videoGroups++;
-        if (group.decision !== "protected")
-          throw new Error("Video group was not protected");
-      }
-      if (group.decision === "protected") {
-        protectedIncluded++;
-        for (const path of members)
-          if (!exported.has(path))
-            throw new Error("Explicit protected inclusion missing member");
-      }
-    }
-    return {
-      status: manifest.status,
-      groupCount: manifest.groupCount,
-      fileCount: manifest.fileCount,
-      bytes: manifest.bytes,
-      allHashesMatchOriginals: verified,
-      companionsComplete: true,
-      videoGroups,
-      protectedIncluded,
-      protected: manifest.unprocessed.length,
-      groups: manifest.groups.map((g) => ({
-        id: g.id,
-        decision: g.decision,
-        groupId: g.machine?.groupId,
-        rank: g.machine?.rank,
-        confidence: g.machine?.confidence,
-        reasons: g.machine?.reasons,
-      })),
-    };
-  }, before);
-  const warmStart = performance.now();
-  await page.reload();
-  await page.locator("#sessions button").first().click();
-  await expect(page.locator("#global")).toContainText("本地分析完成", {
-    timeout: 600000,
-  });
-  report.warmMs = performance.now() - warmStart;
-  report.warm = {
-    completed: true,
-    lastReportPresent: await page.evaluate(async () => {
+    const study = await page.evaluate(async () => {
       const db = await new Promise((r) => {
         const q = indexedDB.open("photo-culler-local");
         q.onsuccess = () => r(q.result);
@@ -492,13 +353,205 @@ try {
         q.onsuccess = () => r(q.result);
       });
       db.close();
-      return rows[0]?.lastReport?.status === "completed";
-    }),
-  };
+      return rows[0].benchmark;
+    });
+    const { evaluateBenchmark } = await import(
+      "../web/modules/cull-benchmark.js"
+    );
+    report.proxyEvaluation = evaluateBenchmark(study);
+    assert.equal(report.proxyEvaluation.total, fixtureFiles.length);
+    assert.equal(report.proxyEvaluation.metricsProvenance, "ai-proxy");
+    assert.equal(report.proxyEvaluation.humanConfirmed, 0);
+    report.study = study;
+  } else {
+    const expectedGroups = new Map();
+    for (const file of before) {
+      if (
+        !/\.(jpe?g|png|webp|heic|heif|rw2|raw|cr2|cr3|nef|arw|dng|orf|raf|xmp|mov|mp4|m4v|avi)$/i.test(
+          file.path,
+        )
+      )
+        continue;
+      const stem = file.path.replace(/\.[^/.]+$/, "");
+      const members = expectedGroups.get(stem) ?? [];
+      members.push(file.path);
+      expectedGroups.set(stem, members);
+    }
+    report.expected = {
+      groups: expectedGroups.size,
+      imageGroups: [...expectedGroups.values()].filter((m) =>
+        m.some((p) => /\.(jpe?g|png|webp|heic|heif)$/i.test(p)),
+      ).length,
+    };
+    assert.equal(report.analysis.cached, report.expected.imageGroups);
+    assert.ok(report.analysis.cards <= 60);
+    await page.locator(".card img").first().click();
+    await page.locator("#zoom-one").click();
+    await expect
+      .poll(() =>
+        page.locator(".compare-frame img").evaluate((img) => {
+          const frame = img.parentElement.getBoundingClientRect();
+          return (
+            Math.min(
+              frame.width / img.naturalWidth,
+              frame.height / img.naturalHeight,
+            ) * new DOMMatrix(getComputedStyle(img).transform).a
+          );
+        }),
+      )
+      .toBeCloseTo(1, 2);
+    report.viewer = await page
+      .locator(".compare-frame img")
+      .evaluate((img) => ({
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+      }));
+    await page.keyboard.press("Escape");
+    await page.locator("#accept").click();
+    await expect(page.locator("#export-space")).toBeVisible();
+    report.plan = await page.evaluate(() => ({
+      summary: document.querySelector("#plan").textContent,
+      detail: JSON.parse(document.querySelector("#unprocessed").textContent),
+    }));
+    report.defaultPlan = report.plan;
+    await page.locator("#include-protected").check();
+    await page
+      .getByRole("button", { name: "接受当前输出计划", exact: true })
+      .click();
+    report.plan = await page.evaluate(() => ({
+      summary: document.querySelector("#plan").textContent,
+      detail: JSON.parse(document.querySelector("#unprocessed").textContent),
+    }));
+    report.explicitProtectedInclusion = true;
+    // Cancel once before writing: the target must remain entirely empty.
+    await page.locator("#target").click();
+    await page.locator("#copy").click();
+    await page.locator("#confirm-cancel").click();
+    assert.equal(
+      await page.evaluate(
+        async () => (await Array.fromAsync(window.__output.values())).length,
+      ),
+      0,
+    );
+    report.cancelBeforeWrite = true;
+    await page.locator("#copy").click();
+    await page.locator("#confirm-copy").click();
+    let last = "";
+    for (let i = 0; i < 3600; i++) {
+      const value = await page.locator("#feedback").textContent();
+      if (i % 20 === 0 && value !== last) {
+        last = value;
+        log("REAL2 " + value);
+      }
+      if (value.includes("已复制并校验")) break;
+      if (value.includes("导出未完成")) throw new Error(value);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    await expect(page.locator("#feedback")).toContainText("已复制并校验");
+    report.export = await page.evaluate(async (original) => {
+      const outputs = await Array.fromAsync(window.__output.values());
+      if (outputs.length !== 1)
+        throw new Error("Expected one output directory");
+      const output = outputs[0];
+      const reports = await output.getDirectoryHandle("Reports");
+      const manifest = JSON.parse(
+        await (
+          await (await reports.getFileHandle("manifest.json")).getFile()
+        ).text(),
+      );
+      const expected = new Map(original.map((f) => [f.path, f.sha256]));
+      let verified = 0;
+      for (const record of manifest.records) {
+        if (
+          record.sourceSHA !== record.destinationSHA ||
+          record.sourceSHA !== expected.get(record.source)
+        )
+          throw new Error("Export SHA does not match original baseline");
+        verified++;
+      }
+      const groupMembers = new Map();
+      for (const file of original) {
+        if (
+          !/\.(jpe?g|png|webp|heic|heif|rw2|raw|cr2|cr3|nef|arw|dng|orf|raf|xmp|mov|mp4|m4v|avi)$/i.test(
+            file.path,
+          )
+        )
+          continue;
+        const id = "group:" + file.path.replace(/\.[^/.]+$/, "");
+        const list = groupMembers.get(id) ?? [];
+        list.push(file.path);
+        groupMembers.set(id, list);
+      }
+      const exported = new Set(manifest.records.map((r) => r.source));
+      for (const record of manifest.records)
+        for (const path of groupMembers.get(record.groupId) ?? [])
+          if (!exported.has(path)) throw new Error("Companion member split");
+      let videoGroups = 0,
+        protectedIncluded = 0;
+      for (const group of manifest.groups) {
+        const members = groupMembers.get(group.id) ?? [];
+        if (members.some((p) => /\.(mov|mp4|m4v|avi)$/i.test(p))) {
+          videoGroups++;
+          if (group.decision !== "protected")
+            throw new Error("Video group was not protected");
+        }
+        if (group.decision === "protected") {
+          protectedIncluded++;
+          for (const path of members)
+            if (!exported.has(path))
+              throw new Error("Explicit protected inclusion missing member");
+        }
+      }
+      return {
+        status: manifest.status,
+        groupCount: manifest.groupCount,
+        fileCount: manifest.fileCount,
+        bytes: manifest.bytes,
+        allHashesMatchOriginals: verified,
+        companionsComplete: true,
+        videoGroups,
+        protectedIncluded,
+        protected: manifest.unprocessed.length,
+        groups: manifest.groups.map((g) => ({
+          id: g.id,
+          decision: g.decision,
+          groupId: g.machine?.groupId,
+          rank: g.machine?.rank,
+          confidence: g.machine?.confidence,
+          reasons: g.machine?.reasons,
+        })),
+      };
+    }, before);
+    const warmStart = performance.now();
+    await page.reload();
+    await page.locator("#sessions button").first().click();
+    await expect(page.locator("#global")).toContainText("本地分析完成", {
+      timeout: 600000,
+    });
+    report.warmMs = performance.now() - warmStart;
+    report.warm = {
+      completed: true,
+      lastReportPresent: await page.evaluate(async () => {
+        const db = await new Promise((r) => {
+          const q = indexedDB.open("photo-culler-local");
+          q.onsuccess = () => r(q.result);
+        });
+        const rows = await new Promise((r) => {
+          const q = db
+            .transaction("cull-sessions")
+            .objectStore("cull-sessions")
+            .getAll();
+          q.onsuccess = () => r(q.result);
+        });
+        db.close();
+        return rows[0]?.lastReport?.status === "completed";
+      }),
+    };
+  }
   assert.deepEqual(report.pageErrors, []);
   assert.deepEqual(report.blockedNetwork, []);
   assert.deepEqual(report.resourceErrors, []);
-  assert.equal(report.export.status, "completed");
+  if (!proxy) assert.equal(report.export.status, "completed");
   report.passed = true;
 } catch (error) {
   report.passed = false;

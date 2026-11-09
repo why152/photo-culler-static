@@ -299,10 +299,59 @@ test("pinned pHash is stable for pixel replication and small JPEG-like quantizat
   assert.ok(distance(original, quantized) <= 6);
 });
 
-test('resume validates saved relative paths and current inventory before binding handles',()=>{
- const plan=planFor(),record=plan.records[0];
- const groups=[{id:record.groupId,fingerprint:record.fingerprint,members:[{path:record.source,handle:record.handle}]}];
- assert.equal(resumePlan(publicManifest(plan),groups).records[0].handle,record.handle);
- assert.throws(()=>resumePlan(publicManifest(plan),[]),/来源清单已改变/);
- const bad=publicManifest(plan);bad.records[0].destination='../escape';assert.throws(()=>resumePlan(bad,groups),/路径无效/);
+test("resume validates saved relative paths and current inventory before binding handles", () => {
+  const plan = planFor(),
+    record = plan.records[0];
+  const groups = [
+    {
+      id: record.groupId,
+      fingerprint: record.fingerprint,
+      members: [{ path: record.source, handle: record.handle }],
+    },
+  ];
+  assert.equal(
+    resumePlan(publicManifest(plan), groups).records[0].handle,
+    record.handle,
+  );
+  assert.throws(() => resumePlan(publicManifest(plan), []), /来源清单已改变/);
+  const bad = publicManifest(plan);
+  bad.records[0].destination = "../escape";
+  assert.throws(() => resumePlan(bad, groups), /路径无效/);
+});
+
+test("similarity labels distinguish exact, version candidates, bursts and unknown without deleting edits", () => {
+  const a = g("a.jpg", null, "0000000000000000"),
+    b = g("b.jpg", null, "0000000000000001");
+  a.analysis.sourceDimensions = { width: 4000, height: 3000 };
+  b.analysis.sourceDimensions = { width: 2000, height: 1500 };
+  const result = rank([a, b]);
+  assert.equal(result.batches.length, 1);
+  assert.equal(
+    result.recommendations[a.id].similarityKind,
+    "same-image-version",
+  );
+  assert.ok(
+    Object.values(result.recommendations).every((r) => r.plan === "protected"),
+  );
+  a.exact = b.exact = "same-sha";
+  assert.equal(rank([a, b]).recommendations[a.id].similarityKind, "exact");
+  delete a.exact;
+  delete b.exact;
+  b.analysis.sourceDimensions = { width: 4000, height: 3000 };
+  a.metadata.capturedAt = 1000;
+  b.metadata.capturedAt = 1500;
+  assert.equal(rank([a, b]).recommendations[a.id].similarityKind, "burst");
+  a.protected = true;
+  assert.equal(rank([a]).recommendations[a.id].similarityKind, "unknown");
+});
+test("resolution breaks comparable-quality ties and panoramic sources stay protected", () => {
+  const a = g("a.jpg", 1000, "0"),
+    b = g("b.jpg", 1000, "0");
+  a.analysis.sourceDimensions = { width: 1000, height: 1000 };
+  b.analysis.sourceDimensions = { width: 3000, height: 3000 };
+  a.exact = b.exact = "same";
+  assert.equal(rank([a, b]).recommendations[b.id].rank, 1);
+  const panorama = g("p.jpg", 2000, "f");
+  panorama.analysis.sourceDimensions = { width: 6000, height: 2000 };
+  assert.equal(rank([panorama]).recommendations[panorama.id].plan, "protected");
 });

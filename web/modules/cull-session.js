@@ -1,4 +1,4 @@
-export const ALGORITHM_VERSION = "rules-2.0-beta.1";
+export const ALGORITHM_VERSION = "rules-2.0-beta.2";
 export function migrateDecision(value) {
   return {
     decision:

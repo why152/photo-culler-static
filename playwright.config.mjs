@@ -6,7 +6,7 @@ export default defineConfig({
   timeout: 30_000,
   use: {
     baseURL: "http://127.0.0.1:4173",
-    channel: "chrome",
+    channel: process.env.PW_CHANNEL ?? "chrome",
     headless: true,
   },
   webServer: {
