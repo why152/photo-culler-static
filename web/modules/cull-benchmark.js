@@ -52,6 +52,17 @@ export function evaluateBenchmark(study) {
     list.push(id);
     moments.set(key, list);
   }
+  const momentVisibleRecall = momentsComplete
+    ? [...moments.keys()].filter((moment) =>
+        ids.some(
+          (id) =>
+            study.labels[id]?.momentId?.trim() === moment &&
+            typeof study.labels[id]?.mustKeep === "boolean" &&
+            study.labels[id]?.usable !== false &&
+            visible(id),
+        ),
+      ).length / moments.size
+    : null;
   const momentRecall = momentsComplete
     ? [...moments.keys()].filter((moment) =>
         ids.some(
@@ -81,6 +92,7 @@ export function evaluateBenchmark(study) {
       ? safeRecall.length / required.length
       : null,
     importantMomentRecall: momentRecall,
+    importantVisibleMomentRecall: momentVisibleRecall,
     hiddenWantedPhotoIds: hidden,
     shortlistCount: ids.filter(include).length,
     visibleCount: ids.filter(visible).length,

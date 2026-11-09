@@ -26,6 +26,49 @@ export function distance(a, b) {
   }
   return n;
 }
+// A version candidate is deliberately protected, never proof that an edit is disposable.
+export function versionCandidate(a, b) {
+  if (a.exact && a.exact === b.exact) return false;
+  if (distance(a.hash, b.hash) > 3) return false;
+  const x = a.analysis?.sourceDimensions,
+    y = b.analysis?.sourceDimensions;
+  if (!x?.width || !x?.height || !y?.width || !y?.height) return false;
+  if (
+    Math.abs(x.width / x.height - y.width / y.height) /
+      Math.max(x.width / x.height, y.width / y.height) >
+    0.2
+  )
+    return false;
+  const differentSize = x.width !== y.width || x.height !== y.height;
+  const format = (g) =>
+    (g.source?.path ?? g.path)
+      .split(".")
+      .at(-1)
+      .toLowerCase()
+      .replace("jpeg", "jpg");
+  const differentFormat = format(a) !== format(b);
+  const edited = [a, b].some((g) =>
+    /photoshop|lightroom|gimp|affinity|snapseed|darktable|capture one|pixelmator/i.test(
+      g.metadata?.Software ?? "",
+    ),
+  );
+  return differentSize || differentFormat || edited;
+}
+export function similarityKind(batch) {
+  if (batch.length === 1)
+    return batch[0].protected || !batch[0].hash ? "unknown" : "unique";
+  if (batch[0].exact && batch.every((g) => g.exact === batch[0].exact))
+    return "exact";
+  if (
+    batch.some((g, i) =>
+      batch.slice(i + 1).some((other) => versionCandidate(g, other)),
+    )
+  )
+    return "same-image-version";
+  return batch.every((g) => g.metadata?.capturedAt != null)
+    ? "burst"
+    : "unknown";
+}
 // Complete-link, bounded time window: no A~B~C transitive chains.
 export function cluster(groups) {
   const result = [];
@@ -48,6 +91,7 @@ export function cluster(groups) {
               !other.protected &&
               !other.manualSplit &&
               ((group.exact && group.exact === other.exact) ||
+                versionCandidate(group, other) ||
                 (time != null &&
                   other.metadata?.capturedAt != null &&
                   Math.abs(time - other.metadata.capturedAt) <= 2500 &&

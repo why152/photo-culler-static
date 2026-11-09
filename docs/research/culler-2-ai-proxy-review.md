@@ -39,3 +39,37 @@ AI recall can reveal rule weaknesses and prepare a smaller confirmation workload
 It cannot establish real preference recall ≥95% or human effort savings ≥70%.
 Confirming AI suggestions is recorded as AI-assisted confirmation, not independent
 blind acceptance. Even a positive proxy result would retain Beta status.
+
+## Frozen rule comparison
+
+The production build analyzed fresh temporary OPFS copies of all 1,233 JPEGs
+(14.13 GB). Every copied JPEG SHA matched its original; all 2,466 source JPEG/RW2
+files were SHA/size/mtime/list checked before and after. All unchanged. Temporary
+browser profile and copies were removed. No page errors, resource failures or
+non-local / non-GET network requests were observed. Cold analysis: 226.36 seconds,
+excluding fixture creation and integrity checks. Mode: burst, compact; algorithm
+`rules-2.0-beta.1`. No thresholds were tuned after examining this result.
+
+| AI-proxy comparison | Result |
+|---|---:|
+| Exact suggested-keep frames in machine shortlist | 83 / 228 (36.40%) |
+| Suggested-keep frames still visible (including protected) | 143 / 228 (62.72%) |
+| Suggested-keep frames folded | 85 |
+| Coarse important moments in machine shortlist | 143 / 190 (75.26%) |
+| Coarse important moments still visible, including protected | 185 / 190 (97.37%) |
+| Machine shortlist | 373 / 1,233 |
+| Candidate + protected review queue | 713 / 1,233 |
+| Visible-count reduction | 42.17% |
+| Human-confirmed labels / measured human effort saving | 0 / not measured |
+
+The 97.37% visible-moment value includes manual-review protection and must not
+be substituted for the 75.26% automatic-shortlist result. Alternative optional
+frames with the same coarse proxy moment ID can represent a moment, so moment
+recall is different from exact selected-frame recall. Neither proxy metric is
+human ground truth. The target automatic recall is **not passed**, and observed
+queue reduction does **not** prove 70% less human work. Keep loose/all review
+available; do not describe this as autonomous reliable photographic judgment.
+
+The application prioritizes the 92 uncertain items and then AI suggested-keep
+frames that the rule engine folded. The local label/report pair is the reusable
+handoff for correcting those decisions without relabeling everything from zero.

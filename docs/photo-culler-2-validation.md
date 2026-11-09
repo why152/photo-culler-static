@@ -105,3 +105,30 @@ platform evidence. Native external-disk writes, power loss and genuine independe
 human quality/effort acceptance remain unverified. Edited/cropped/panoramic/semantic
 quality limits in the earlier matrix remain open; this patch does not claim them
 solved by AI proxy labeling.
+
+### Frozen-rule coverage and native follow-up
+
+`rules-2.0-beta.2` now exposes exact / same-image-version / burst / unique /
+unknown classifications. Near hashes with explicit size/format/editor evidence
+are version candidates and stay protected; this is not semantic proof of identity.
+Original oriented dimensions are reused from the existing bounded metadata read,
+not reparsed with a new library. Resolution breaks comparable-quality ties.
+Wide/tall panoramic aspect ratios and exposure-sequence evidence trigger review.
+Actual resized PNG, recompressed JPEG, cropped JPEG and wide-image browser
+fixtures verify safety and source-dimension retention. Unknown artistic/semantic
+sequences still cannot be reliably classified and should be reviewed in full.
+
+Latest local validation: **114 Node, 65 Chrome, 10 built-dist tests passed**;
+1 existing optional benchmark skipped. A Windows CI repeat exposed a legacy
+first-run progress assertion racing the transition to completed analysis; the
+fixture now explicitly holds scan iteration until that same progress assertion
+passes, then releases it. The assertion is preserved, not weakened.
+
+[Native Mac directory test](research/culler-2-native-copy-acceptance.md) adds actual
+picker/permission/cancellation and 35 native-file SHA/companion checks. Loopback
+acceptance is distinguished from production HTTPS and removable-disk coverage.
+The [AI proxy comparison](research/culler-2-ai-proxy-review.md) was repeated with
+frozen beta.2: identical 75.26% automatic moment recall, 97.37% visible moment
+coverage including protected, 85 wanted frames folded. All 2466 original hashes,
+sizes, mtimes and file list unchanged; isolated profile removed. Quality target
+is not passed and Beta is retained.

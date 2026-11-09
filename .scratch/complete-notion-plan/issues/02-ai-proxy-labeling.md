@@ -1,5 +1,5 @@
 # Local AI proxy labeling and frozen evaluation
-Status: In Progress
+Status: Done
 Blocked by: None for AI proxy; independent human preferences remain unavailable
 
 ## Acceptance
@@ -13,3 +13,10 @@ Blocked by: None for AI proxy; independent human preferences remain unavailable
 92 uncertain. Local JSON retained under ignored output/. Import/provenance,
 reload, source matching and non-mutation tested. Real proxy comparison running
 in new temporary OPFS; source hashes checked before/after. No human acceptance.
+
+2026-11-10: Frozen proxy comparison passed functional/integrity checks: 1233 labels
+mapped, 1141 classified, 92 uncertain; automatic moment recall143/190=75.26%,
+visible moment185/190=97.37% including protected, 85 wanted frames folded. All2466
+source hashes/size/mtime/list unchanged; temporary OPFS/profile removed. This does
+not pass human quality or effort gates. Aggregate report is published, private
+labels and per-file report stay local.

@@ -81,7 +81,10 @@ export function installBenchmark({ getState, save, message, download }) {
               ? "可选"
               : "待确认") +
           " · " +
-          (label.reason ?? "")
+          (label.reason ?? "") +
+          (label.mustKeep === true && s.recommendations[id]?.plan === "suppress"
+            ? " · 机器已折叠：请优先核对"
+            : "")
         : "真人确认后记录于本地。";
     const result = evaluateBenchmark(s);
     $("benchmark-result").textContent =
@@ -149,8 +152,10 @@ export function installBenchmark({ getState, save, message, download }) {
         mapped.labels[id].mustKeep === null
           ? 0
           : mapped.labels[id].mustKeep === true
-            ? 1
-            : 2;
+            ? s.recommendations[id]?.plan === "suppress"
+              ? 1
+              : 2
+            : 3;
       s.deck.sort((a, b) => priority(a) - priority(b));
       s.importedProxy = true;
       state.session.benchmark = s;

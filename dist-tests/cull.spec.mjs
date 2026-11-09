@@ -523,3 +523,105 @@ test("changed source invalidates a saved acceptance without aborting session ana
   );
   await expect(page.locator("#copy")).toBeDisabled();
 });
+
+test("actual resized, recompressed and cropped image versions remain safe, original dimensions and panoramas are preserved", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await page.evaluate(async () => {
+    const storage = await navigator.storage.getDirectory(),
+      root = await storage.getDirectoryHandle("versions", { create: true });
+    const canvas = document.createElement("canvas");
+    canvas.width = 600;
+    canvas.height = 400;
+    const c = canvas.getContext("2d");
+    const gradient = c.createLinearGradient(0, 0, 600, 400);
+    gradient.addColorStop(0, "#263759");
+    gradient.addColorStop(1, "#e3bc83");
+    c.fillStyle = gradient;
+    c.fillRect(0, 0, 600, 400);
+    c.fillStyle = "#192d34";
+    c.fillRect(120, 80, 100, 270);
+    c.fillStyle = "#dacfaa";
+    c.beginPath();
+    c.arc(420, 120, 65, 0, Math.PI * 2);
+    c.fill();
+    const write = async (name, w, h, type, quality, crop = false) => {
+      const out = document.createElement("canvas");
+      out.width = w;
+      out.height = h;
+      out
+        .getContext("2d")
+        .drawImage(canvas, crop ? 50 : 0, 0, crop ? 500 : 600, 400, 0, 0, w, h);
+      const blob = await new Promise((r) => out.toBlob(r, type, quality));
+      const handle = await root.getFileHandle(name, { create: true }),
+        writer = await handle.createWritable();
+      await writer.write(blob);
+      await writer.close();
+    };
+    await write("base.jpg", 600, 400, "image/jpeg", 0.98);
+    await write("resized.png", 300, 200, "image/png");
+    await write("recompressed.jpg", 600, 400, "image/jpeg", 0.65);
+    await write("cropped.jpg", 500, 400, "image/jpeg", 0.9, true);
+    await write("panorama.jpg", 900, 250, "image/jpeg", 0.95);
+    window.showDirectoryPicker = async () => root;
+  });
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.locator("#filter").selectOption("all");
+  await expect(page.locator(".card")).toHaveCount(5);
+  const states = await page.locator(".card").evaluateAll((cards) =>
+    cards.map((card) => ({
+      name: card.querySelector("img")?.alt,
+      detail: card.querySelectorAll("p")[1].textContent,
+    })),
+  );
+  expect(states.every((s) => !s.detail.startsWith("暂不导出"))).toBe(true);
+  expect(states.some((s) => s.detail.includes("疑似同图版本"))).toBe(true);
+  expect(states.find((s) => s.name === "panorama").detail).toContain("待复核");
+  const dimensions = await page.evaluate(async () => {
+    const db = await new Promise((r) => {
+      const q = indexedDB.open("photo-culler-local");
+      q.onsuccess = () => r(q.result);
+    });
+    const rows = await new Promise((r) => {
+      const q = db.transaction("analysis").objectStore("analysis").getAll();
+      q.onsuccess = () => r(q.result);
+    });
+    db.close();
+    return rows.map((r) => r.analysis.analysis.sourceDimensions);
+  });
+  expect(dimensions).toContainEqual({ width: 600, height: 400 });
+  expect(dimensions).toContainEqual({ width: 300, height: 200 });
+});
+
+test("target permission denial explains the safe fallback and allows retry without losing acceptance", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await fixture(page);
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.locator("#accept").click();
+  await page.evaluate(() => {
+    window.showDirectoryPicker = async () => {
+      throw new DOMException("denied", "NotAllowedError");
+    };
+  });
+  await page.locator("#target").click();
+  await expect(page.locator("#feedback")).toContainText("未取得目标写权限");
+  await expect(page.locator("#copy")).toBeDisabled();
+  await expect(page.locator("#acceptance-status-export")).toContainText(
+    "已采纳",
+  );
+  await page.evaluate(() => {
+    window.showDirectoryPicker = async () => window.__target;
+  });
+  await page.locator("#target").click();
+  await expect(page.locator("#copy")).toBeEnabled();
+  expect(
+    await page.evaluate(
+      async () => (await Array.fromAsync(window.__target.values())).length,
+    ),
+  ).toBe(0);
+});

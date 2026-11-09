@@ -16,3 +16,11 @@ import/confirmation, shortcuts and narrow survey fallback. Full review CSV repai
 Local 112 Node +65 Chrome +8 dist pass, 1 optional benchmark skipped. Windows Edge
 CI added; PR/deployment evidence pending. Remaining special-image, external-disk
 and genuine human-quality gates are documented rather than marked complete.
+
+2026-11-10: Added explicit similarity types, protected near-version candidates,
+original resolution ranking and wide/tall panorama evidence. Actual resize,
+recompression and crop browser fixtures pass. Native Mac Chrome system picker
+copy verified30 JPEG/RW2 groups+3test XMP:35output files allSHA/companions,
+permission deny/retry and cancellation, originals unchanged. Windows CI exposed
+legacy progress observation race; held scan fixture preserves assertion.
+114Node+65Chrome+10dist local passed; final PR CI/deploy pending.

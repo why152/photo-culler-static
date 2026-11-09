@@ -1,6 +1,14 @@
-import { cluster } from "./cull-similarity.js";
+import { cluster, similarityKind } from "./cull-similarity.js";
 import { distance } from "./cull-similarity.js";
 import { ALGORITHM_VERSION } from "./cull-session.js";
+function panoramic(group) {
+  const d = group.analysis?.sourceDimensions;
+  return (
+    d?.width > 0 &&
+    d?.height > 0 &&
+    Math.max(d.width / d.height, d.height / d.width) >= 2.4
+  );
+}
 export function rank(groups, { strength = "standard", mode = "burst" } = {}) {
   const batches = cluster(groups),
     recommendations = {};
@@ -8,15 +16,23 @@ export function rank(groups, { strength = "standard", mode = "burst" } = {}) {
     const ordered = [...batch].sort(
       (a, b) =>
         (b.analysis?.technicalScore ?? 0) - (a.analysis?.technicalScore ?? 0) ||
+        (b.analysis?.sourceDimensions?.width ?? 0) *
+          (b.analysis?.sourceDimensions?.height ?? 0) -
+          (a.analysis?.sourceDimensions?.width ?? 0) *
+            (a.analysis?.sourceDimensions?.height ?? 0) ||
         a.path.localeCompare(b.path),
     );
+    const kind = similarityKind(batch);
     const uncertain =
+      kind === "same-image-version" ||
+      kind === "unknown" ||
       ordered.some(
         (g) =>
           g.protected ||
           !g.hash ||
           g.analysis?.exposureScore < 65 ||
-          g.analysis?.sharpness < 22,
+          g.analysis?.sharpness < 22 ||
+          panoramic(g),
       ) ||
       new Set(
         ordered
@@ -45,6 +61,7 @@ export function rank(groups, { strength = "standard", mode = "burst" } = {}) {
       if (include) selected.push(g);
       recommendations[g.id] = {
         groupId: batch[0].id,
+        similarityKind: kind,
         rank: ordered.indexOf(g) + 1,
         plan:
           g.protected || !g.hash
@@ -56,11 +73,13 @@ export function rank(groups, { strength = "standard", mode = "burst" } = {}) {
                 : "suppress",
         confidence: uncertain ? "low" : batch.length > 1 ? "medium" : "low",
         reasons: [
-          uncertain
-            ? "题材或读取存在不确定性，请复核"
-            : batch.length > 1
-              ? "同组清晰度、曝光与视觉差异排序"
-              : "独立瞬间，保留候选",
+          kind === "same-image-version"
+            ? "疑似缩放、重压缩或编辑版本，保留全部供复核"
+            : uncertain
+              ? "题材、特殊序列或读取存在不确定性，请复核"
+              : batch.length > 1
+                ? "同组清晰度、曝光与视觉差异排序"
+                : "独立瞬间，保留候选",
         ],
         algorithmVersion: ALGORITHM_VERSION,
       };

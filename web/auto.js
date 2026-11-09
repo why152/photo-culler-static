@@ -462,7 +462,18 @@ function render() {
       ] +
       " · " +
       (m?.reasons?.join("；") ?? g.error ?? "未分析") +
-      (m ? " · 同组 #" + m.rank : "");
+      (m
+        ? " · " +
+          ({
+            exact: "同字节重复",
+            "same-image-version": "疑似同图版本",
+            burst: "连拍",
+            unique: "独立照片",
+            unknown: "关系未知",
+          }[m.similarityKind] ?? "关系未知") +
+          " · 同组 #" +
+          m.rank
+        : "");
     card.append(detail);
     const h = human[g.id] ?? {};
     card.append(
@@ -561,7 +572,7 @@ function renderPlan() {
           accepted.plan.groupCount +
           " 组 / " +
           accepted.plan.fileCount +
-          " 个文件。已保存本次输出计划，尚未复制照片。"
+          " 个文件。已保存本次输出计划；文件复制需独立确认。"
         : "尚未采纳：以下为推荐预览。接受后生成已确认输出计划；修改决定或设置后需重新采纳。";
   $("accept").disabled = busy || !groups.length || confirmed;
   $("accept").textContent = confirmed ? "已接受整批推荐" : "接受整批推荐";
@@ -946,7 +957,11 @@ $("target").onclick = async () => {
       " / 新建 PhotoCull_Output_<时间与随机标识>；确认后才写入。";
     renderPlan();
   } catch (e) {
-    message(e.message);
+    message(
+      ["AbortError", "NotAllowedError", "SecurityError"].includes(e.name)
+        ? "未取得目标写权限或已取消选择；本次未导出照片，可继续筛选或重试。"
+        : e.message,
+    );
   }
 };
 $("copy").onclick = () => {
