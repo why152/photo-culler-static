@@ -1,5 +1,9 @@
 # Photo Culler 2.0 Beta candidate validation
 
+Latest follow-up: beta.3 ports licensed upstream focus methods. See the
+[retrospective comparison and source-integrity evidence](research/culler-2-upstream-focus.md).
+The beta.2 measurements below remain historical; neither result is human acceptance.
+
 Date: 2026-11-09 JST. Baseline main: b46899ec9dcfc73b08e2b642ea5b71ad9eb8965b.
 Implementation branch: codex/photo-culler-2. Source: execution book section 0.
 Initial synthetic validation accessed no user camera originals. A later explicitly authorized read-only real-camera test is recorded below; no originals were modified, moved or deleted. No production

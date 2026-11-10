@@ -92,6 +92,8 @@ export async function captureMetadata(file) {
         "ExposureTime",
         "ExposureBiasValue",
         "Software",
+        "FNumber",
+        "FocalLength",
       ],
     });
     const date = data?.DateTimeOriginal;

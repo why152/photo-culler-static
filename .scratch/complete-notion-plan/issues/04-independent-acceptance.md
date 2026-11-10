@@ -7,8 +7,10 @@ Notion section0.8/7 requires independent500–1000-photo batches with actual hum
 preferences and measured human viewing count/time. The user authorized AI vision
 to prepare most labels; this produced1141classified+92uncertain of1233 reviewed.
 It does not supply independent human labels: the frozen report has humanConfirmed0.
-Automatic proxy moment recall is143/190=75.26%, below95%; visible/protected moment
-coverage185/190=97.37% must not replace it. Human effort reduction remains unmeasured.
+Frozen beta.2 automatic proxy moment recall was143/190=75.26%. The subsequent
+licensed upstream-focus follow-up improves this to150/190=78.95%, still below95%;
+visible/protected coverage187/190=98.42% must not replace automatic recall.
+Human effort reduction remains unmeasured. See docs/research/culler-2-upstream-focus.md.
 
 The shipped local workflow imports SHA-bound AI drafts, prioritizes uncertainty
 and folded suggested keeps, records individual human confirmation, supports fresh
