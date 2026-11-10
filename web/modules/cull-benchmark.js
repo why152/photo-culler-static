@@ -7,7 +7,7 @@ export function benchmarkIdentity(groups) {
 export function createBenchmark(
   groups,
   recommendations,
-  { split = "held-out", size = 500 } = {},
+  { split = "held-out", size = 500, preferences = null } = {},
 ) {
   const deck = groups.map((g) => g.id);
   for (let i = deck.length - 1; i > 0; i--) {
@@ -22,6 +22,8 @@ export function createBenchmark(
     algorithmVersion: ALGORITHM_VERSION,
     identity: benchmarkIdentity(groups),
     split,
+    importedProxy: false,
+    preferences: structuredClone(preferences),
     startedAt: new Date().toISOString(),
     deck,
     index: 0,
@@ -81,6 +83,7 @@ export function evaluateBenchmark(study) {
   return {
     algorithmVersion: study.algorithmVersion,
     split: study.split,
+    frozenPreferences: study.preferences ?? null,
     total: ids.length,
     labeled: classified.length,
     uncertain: ids.length - classified.length,
@@ -116,11 +119,13 @@ export function evaluateBenchmark(study) {
               ? "calibration-only"
               : ids.length < 500 || ids.length > 1000
                 ? "outside-heldout-size"
-                : momentRecall === null
-                  ? "missing-important-moment-labels"
-                  : momentRecall < 0.95
-                    ? "recall-below-target"
-                    : "recall-passed-human-effort-unmeasured",
+                : !study.preferences
+                  ? "frozen-settings-unrecorded"
+                  : momentRecall === null
+                    ? "missing-important-moment-labels"
+                    : momentRecall < 0.95
+                      ? "recall-below-target"
+                      : "recall-passed-human-effort-unmeasured",
   };
 }
 export function importProxyLabels(draft, groups) {
@@ -156,4 +161,63 @@ export function importProxyLabels(draft, groups) {
     };
   }
   return { labels, unmatched };
+}
+
+export function restoreBenchmark(backup, groups) {
+  const study = backup?.study;
+  if (
+    study?.version !== 1 ||
+    study.algorithmVersion !== ALGORITHM_VERSION ||
+    study.identity !== benchmarkIdentity(groups)
+  )
+    throw new Error("备份来源或算法与当前会话不一致，未恢复");
+  const ids = new Set(groups.map((g) => g.id));
+  if (
+    !Array.isArray(study.deck) ||
+    !study.deck.length ||
+    new Set(study.deck).size !== study.deck.length ||
+    study.deck.some((id) => !ids.has(id)) ||
+    !["held-out", "calibration"].includes(study.split) ||
+    !Number.isInteger(study.index) ||
+    study.index < 0 ||
+    study.index > study.deck.length
+  )
+    throw new Error("标注备份的队列或进度无效");
+  const deck = new Set(study.deck);
+  if (
+    !study.labels ||
+    typeof study.labels !== "object" ||
+    Array.isArray(study.labels) ||
+    Object.entries(study.labels).some(
+      ([id, label]) =>
+        !deck.has(id) ||
+        !label ||
+        ![true, false, null].includes(label.mustKeep) ||
+        !["human", "ai-proxy"].includes(label.source) ||
+        typeof label.momentId !== "string",
+    )
+  )
+    throw new Error("标注备份字段无效");
+  if (
+    !study.recommendations ||
+    study.deck.some(
+      (id) =>
+        !["include", "suppress", "protected", "unknown"].includes(
+          study.recommendations[id]?.plan,
+        ) || study.recommendations[id]?.algorithmVersion !== ALGORITHM_VERSION,
+    )
+  )
+    throw new Error("备份的冻结推荐无效");
+  if (
+    study.preferences &&
+    (!["burst", "album"].includes(study.preferences.mode) ||
+      !["compact", "standard", "loose"].includes(study.preferences.strength))
+  )
+    throw new Error("备份筛选设置无效");
+  const restored = structuredClone(study);
+  // Old backups without explicit provenance cannot acquire independent-blind status.
+  restored.importedProxy =
+    study.importedProxy !== false ||
+    Object.values(study.labels).some((label) => label.source === "ai-proxy");
+  return restored;
 }

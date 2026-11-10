@@ -146,3 +146,77 @@ test("review CSV covers excluded and protected members, independent human state,
   assert.ok(csv.includes('"true"'));
   assert.equal(plan.records.length, 1);
 });
+
+import { restoreBenchmark } from "../modules/cull-benchmark.js";
+import { ALGORITHM_VERSION } from "../modules/cull-session.js";
+test("downloaded study restoration requires exact source and algorithm, retains frozen settings and AI-assisted provenance", () => {
+  const groups = [{ id: "a", fingerprint: "f", sourceSHA: "sha" }];
+  const study = createBenchmark(
+    groups,
+    { a: { plan: "include", algorithmVersion: ALGORITHM_VERSION } },
+    { preferences: { mode: "burst", strength: "compact" } },
+  );
+  study.labels.a = { mustKeep: true, source: "human", momentId: "moment" };
+  study.index = 1;
+  study.importedProxy = true;
+  const restored = restoreBenchmark(
+    JSON.parse(JSON.stringify({ study })),
+    groups,
+  );
+  assert.deepEqual(restored, study);
+  assert.equal(
+    evaluateBenchmark(restored).acceptance,
+    "human-confirmed-ai-draft-not-independent-blind",
+  );
+  study.labels.a.mustKeep = false;
+  assert.equal(restored.labels.a.mustKeep, true);
+  assert.throws(
+    () =>
+      restoreBenchmark({ study: restored }, [
+        { ...groups[0], sourceSHA: "changed" },
+      ]),
+    /来源或算法/,
+  );
+  assert.throws(
+    () =>
+      restoreBenchmark(
+        { study: { ...restored, algorithmVersion: "old" } },
+        groups,
+      ),
+    /来源或算法/,
+  );
+  assert.throws(
+    () =>
+      restoreBenchmark({ study: { ...restored, deck: ["a", "a"] } }, groups),
+    /队列/,
+  );
+  const old = structuredClone(restored);
+  delete old.importedProxy;
+  assert.equal(restoreBenchmark({ study: old }, groups).importedProxy, true);
+});
+test("missing frozen settings cannot pass an otherwise complete independent human recall study", () => {
+  const groups = Array.from({ length: 500 }, (_, i) => ({
+    id: String(i),
+    fingerprint: String(i),
+  }));
+  const recommendations = Object.fromEntries(
+    groups.map((g) => [
+      g.id,
+      { plan: "include", algorithmVersion: ALGORITHM_VERSION },
+    ]),
+  );
+  const s = createBenchmark(groups, recommendations);
+  s.blindingAttested = true;
+  s.labels = Object.fromEntries(
+    groups.map((g) => [
+      g.id,
+      { mustKeep: true, momentId: g.id, source: "human" },
+    ]),
+  );
+  assert.equal(evaluateBenchmark(s).acceptance, "frozen-settings-unrecorded");
+  s.preferences = { mode: "burst", strength: "compact" };
+  assert.equal(
+    evaluateBenchmark(s).acceptance,
+    "recall-passed-human-effort-unmeasured",
+  );
+});

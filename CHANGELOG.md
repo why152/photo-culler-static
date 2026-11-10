@@ -5,6 +5,7 @@
 - Save and use accepted output snapshots; undo and candidate/source/settings changes require new acceptance.
 - Default new bursts to compact; fix filtered paging and session reopening after source changes.
 - Add local SHA-bound AI draft labels, uncertainty-first confirmation and frozen provenance-aware evaluation.
+- Restore downloaded label studies with exact identity/algorithm checks, retained AI provenance/settings, overwrite confirmation and save-failure rollback.
 - Distinguish exact, version candidates, bursts, unique and unknown; protect edits/panoramic sources and reuse original dimensions for ranking.
 - Export every member in review CSV; improve keyboard help, undo, fullscreen, focus targets and narrow-screen comparison.
 - Verify native Mac directory picker copies on disposable photo pairs; add Windows Edge CI and preserve deterministic legacy progress assertions.

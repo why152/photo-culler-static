@@ -32,3 +32,25 @@ No original file was opened writable, renamed, moved or deleted. Native external
 moves remain disabled; copy acceptance must not be generalized to move/restore,
 real disk-full/device removal, or arbitrary platforms. Photos, filenames and
 per-file manifest remain local; only aggregate evidence is published here.
+
+## Actual production HTTPS follow-up
+
+After PR#3 deployed main1adee7d, the same native picker workflow was repeated on
+https://why152.github.io/photo-culler-static/ in a new temporary incognito window.
+The disposable source still contained30groups/63members; a fresh independent
+native target was used. Cancelling created nothing. Confirmed copy produced
+16groups/35files; all streaming hashes matched, companions were complete, and
+review CSV contained63members. All60 corresponding true originals and source
+copies retained SHA,size,mtime. Temporary incognito window and both native
+source/output fixture trees were removed after verification.
+
+A separate synthetic HTTPS smoke copied4OPFS files with matching hashes, tested
+acceptance invalidation/cancellation and the legacy route; no page errors, failed
+resources or non-site/non-GET requests were seen. Deployed JS SHA matched the
+verified local build; legacy/auto/robots/sitemap returned200.
+
+The regular Chrome loopback test origin127.0.0.1:4181 could not be automatically
+cleared because the browser security policy blocked internal settings access.
+The user was asked to clear or explicitly retain only that test-origin cache.
+No workaround was used, production user sessions were not cleared, and the
+loopback test server was stopped. Physical test photos were removed independently.
