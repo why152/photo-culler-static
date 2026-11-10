@@ -1,5 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+test("built subpath ships full upstream MIT notices", async ({ request }) => {
+  const response = await request.get("UPSTREAM_NOTICES.txt");
+  expect(response.status()).toBe(200);
+  const text = await response.text();
+  expect(text).toContain("Copyright (c) 2026 Paolo Cortez");
+  expect(text).toContain("Copyright (c) 2026 Zane");
+  expect(text).toContain('THE SOFTWARE IS PROVIDED "AS IS"');
+});
 async function fixture(page) {
   await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory();
@@ -513,6 +521,68 @@ test("review shortcuts undo independently, narrow survey falls back, inputs keep
   expect(await page.locator("#shortcut-help").evaluate((e) => e.open)).toBe(
     false,
   );
+});
+
+test("beta.2 accepted plan requires reacceptance after upgrade while favorite survives", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await fixture(page);
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page
+    .locator(".card")
+    .first()
+    .getByRole("button", { name: "☆ 精选", exact: true })
+    .click();
+  await page.locator("#accept").click();
+  await expect(page.locator("#acceptance-status-export")).toContainText(
+    "已采纳",
+  );
+  await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const r = indexedDB.open("photo-culler-local");
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+    try {
+      const tx = db.transaction("cull-sessions", "readwrite"),
+        store = tx.objectStore("cull-sessions");
+      const request = store.openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const value = cursor.value;
+        if (!value.acceptedPlan)
+          throw Error("Fixture acceptance not persisted");
+        const signature = JSON.parse(value.acceptedPlan.signature);
+        signature.algorithmVersion = "rules-2.0-beta.2";
+        value.acceptedPlan.signature = JSON.stringify(signature);
+        value.algorithmVersion = value.acceptedAlgorithm = "rules-2.0-beta.2";
+        cursor.update(value);
+        cursor.continue();
+      };
+      await new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  });
+  await page.reload();
+  await page.locator("#sessions button").first().click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await expect(page.locator("#acceptance-status-results")).toContainText(
+    "尚未采纳",
+  );
+  await expect(
+    page
+      .locator(".card")
+      .first()
+      .getByRole("button", { name: "★ 精选", exact: true }),
+  ).toBeVisible();
 });
 
 test("changed source invalidates a saved acceptance without aborting session analysis", async ({

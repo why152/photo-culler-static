@@ -1,5 +1,11 @@
 # Changes
 
+## 2.0 Beta local-focus update — 2026-11-10 JST
+
+- Adapt pinned MIT Photo-Curator normalization and OpenPhotoCull coherent sharp-region/EXIF methods into the existing local Worker, with full notices in the static build.
+- Protect weak frames individually so clear neighbors can become candidates; preserve special-sequence protections and human decisions. Bump algorithm/cache/accepted-plan version to beta.3.
+- Read-only AI-proxy comparison: automatic moment recall 75.26% → 78.95%, visible coverage 97.37% → 98.42%, review queue 713 → 704; all 2,466 originals unchanged. Still 85 wanted frames folded; this is not human acceptance.
+
 ## 2.0 Beta update — 2026-11-10 JST
 
 - Save and use accepted output snapshots; undo and candidate/source/settings changes require new acceptance.

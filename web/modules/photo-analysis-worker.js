@@ -118,7 +118,7 @@ export function scoreStatistics(globalVariance, localVariance, darkCount, bright
   return { status, sharpness, exposureScore, technicalScore, reasons };
 }
 
-export async function analyzeFile(file, timing = new AnalysisTiming(), onPreview) {
+export async function analyzeFile(file, timing = new AnalysisTiming(), onPreview, onAnalysis) {
   let bitmap, sourceDimensions;
   try {
     bitmap = await decodeBitmap(file, timing, dimensions => {sourceDimensions=dimensions;});
@@ -165,7 +165,7 @@ export async function analyzeFile(file, timing = new AnalysisTiming(), onPreview
       ).data);
     const result = timing.measure("score", () => scorePixels(pixels,
       analysisSize.width, analysisSize.height));
-    return { ...result, thumbnail, sourceDimensions };
+    return { ...result, ...(onAnalysis?.(analysisCanvas) ?? {}), thumbnail, sourceDimensions };
   } catch (error) {
     return {
       status: "review",

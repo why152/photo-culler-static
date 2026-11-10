@@ -17,7 +17,20 @@ model and measured recall improvement. browser-fs-access is not installed becaus
 native read-only import is sufficient for this desktop baseline.
 
 Existing viewer, CPU quality analysis, caches and journal implementation are
-reused. No implementation or assets copied from Pixo (GPL-3.0), competitor apps,
-or compare-image. No repository-wide license has been invented: this repository
+reused. The additional focus adapter ports these MIT numerical functions:
+
+| Source | Pinned commit and functions | Full notice |
+|---|---|---|
+| [Photo-Curator](https://github.com/kotyzap/Photo-Curator/blob/1cb56a07a9ed3bff7e3d3f93a9305c31d1cd6e52/photo_ranking_v3.py) | `1cb56a07a9ed3bff7e3d3f93a9305c31d1cd6e52`, `_sharpness` normalization | [MIT](docs/licenses/photo-curator.txt) |
+| [OpenPhotoCull](https://github.com/zwoodard/OpenPhotoCull/blob/8824c83b8b2dce461e1d33f0ac77e0d7168d5053/src-tauri/src/commands/scan.rs) | `8824c83b8b2dce461e1d33f0ac77e0d7168d5053`, `compute_blur`, `largest_cluster_size`, `exif_intent` | [MIT](docs/licenses/openphotocull.txt) |
+
+Browser decoding, luminance conversion and border handling differ from the native
+pipelines; this is a port of the numerical methods, not a pixel-identical native
+application. No upstream native/Apple Vision model, deletion or duplicate-chain
+implementation is used. Full MIT notices ship in `web/public/UPSTREAM_NOTICES.txt`
+and the built site's `UPSTREAM_NOTICES.txt`.
+
+No implementation or assets copied from Pixo (GPL-3.0) or compare-image.
+No repository-wide license has been invented: this repository
 had no root LICENSE at the baseline. The third-party licenses above remain in
 force independently of the owner's choice of license for project code.
