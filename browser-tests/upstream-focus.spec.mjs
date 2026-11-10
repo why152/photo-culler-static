@@ -41,7 +41,7 @@ test("existing analysis hook adds bounded local focus without changing legacy sc
     };
   });
   expect(result.enhanced).toEqual(result.legacy);
-  expect(result.focus.version).toBe("upstream-focus-1");
+  expect(result.focus.version).toBe("upstream-focus-2");
   expect(Number.isFinite(result.focus.normalizedSharpness)).toBe(true);
   expect(result.focus.sharpTileFraction).toBeGreaterThan(0);
 });

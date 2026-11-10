@@ -4,7 +4,7 @@
  * OpenPhotoCull 8824c83b, commands/scan.rs:compute_blur,largest_cluster_size,exif_intent.
  * Input adapter uses browser-decoded 1024px luminance, not native model inference.
  */
-export const FOCUS_ANALYSIS_VERSION = "upstream-focus-1";
+export const FOCUS_ANALYSIS_VERSION = "upstream-focus-2";
 const TILE_SIZE = 64,
   SHARP_THRESHOLD = 100;
 export function normalizedFocus(laplacianVariance, luminanceVariance) {
@@ -79,7 +79,9 @@ export function analyzeGrayFocus(gray, width, height) {
     counts = new Uint32Array(n);
   let lumSum = 0,
     lumSquares = 0;
+  const histogram = new Uint32Array(256);
   for (const value of gray) {
+    histogram[value]++;
     lumSum += value;
     lumSquares += value * value;
   }
@@ -120,6 +122,7 @@ export function analyzeGrayFocus(gray, width, height) {
   const valid = vars.length || 1;
   return {
     version: FOCUS_ANALYSIS_VERSION,
+    exposure: luminanceEvidence(histogram, gray.length),
     laplacianVariance,
     luminanceVariance,
     normalizedSharpness: normalizedFocus(laplacianVariance, luminanceVariance),
@@ -150,4 +153,29 @@ export function analyzeCanvasFocus(canvas) {
     );
   }
   return analyzeGrayFocus(gray, width, height);
+}
+
+export function luminanceEvidence(histogram, count) {
+  const quantile = (fraction) => {
+    let n = 0;
+    for (let i = 0; i < 256; i++) {
+      n += histogram[i];
+      if (n >= Math.ceil(count * fraction)) return i;
+    }
+    return 255;
+  };
+  const sum = (start, end) => {
+    let n = 0;
+    for (let i = start; i <= end; i++) n += histogram[i];
+    return n / count;
+  };
+  return {
+    version: "luminance-1",
+    darkFraction: sum(0, 8),
+    brightFraction: sum(247, 255),
+    midtoneFraction: sum(32, 224),
+    p05: quantile(0.05),
+    p50: quantile(0.5),
+    p95: quantile(0.95),
+  };
 }

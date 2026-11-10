@@ -125,6 +125,7 @@
             >显示
             <select id="filter">
               <option value="shortlist">候选与待复核</option>
+              <option value="technical-review">技术疑难与低曝光代表</option>
               <option value="all">查看所有</option>
               <option value="suppress">暂不导出</option>
               <option value="favorite">★精选</option>
@@ -173,6 +174,7 @@
           JPEG/PNG/WebP 可分析；HEIC 取决于浏览器。RAW
           不解码。没有可靠拍摄时间只进行精确重复候选判断。夜景、曝光包围、低清晰度和未知格式保守保留。规则排序只比较同组，不判艺术价值。模型增强关闭：尚未验证
           MediaPipe 无遥测，尚无验证通过的小型 embedding 模型。
+          低曝光但存在连续清晰区域时可推荐同组代表，其余疑难仍保护。
         </p>
         <p>本地清晰度分析复用开源数值方法；<a href="./UPSTREAM_NOTICES.txt">来源与 MIT 许可</a>。</p>
         <p>

@@ -18,6 +18,12 @@ required-moment labels beta.3 recalls118/139=84.89% automatically; this is not
 an improvement claim versus the old190-moment label set. All agents retain AI
 provenance and humanConfirmed0. See docs/research/culler-2-multi-agent-visual-review.md.
 
+Exposure follow-up beta.4 adds only eligible low-key nominations: merged136/139
+(97.84%), union140/140, historical181/190(95.26%), no newly folded frame. The
+visible queue stays704; the optional320-group technical subset is not measured
+human effort. Independent batch/human acceptance remains open. See
+docs/research/culler-2-contextual-exposure.md.
+
 The shipped local workflow imports SHA-bound AI drafts, prioritizes uncertainty
 and folded suggested keeps, records individual human confirmation, supports fresh
 blind sampling, freezes settings/recommendations, and restores downloaded backups.
