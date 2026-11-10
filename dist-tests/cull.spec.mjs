@@ -523,67 +523,68 @@ test("review shortcuts undo independently, narrow survey falls back, inputs keep
   );
 });
 
-test("beta.2 accepted plan requires reacceptance after upgrade while favorite survives", async ({
-  page,
-}) => {
-  await page.goto("./");
-  await fixture(page);
-  await page.locator("#choose").click();
-  await expect(page.locator("#global")).toContainText("本地分析完成");
-  await page
-    .locator(".card")
-    .first()
-    .getByRole("button", { name: "☆ 精选", exact: true })
-    .click();
-  await page.locator("#accept").click();
-  await expect(page.locator("#acceptance-status-export")).toContainText(
-    "已采纳",
-  );
-  await page.evaluate(async () => {
-    const db = await new Promise((resolve, reject) => {
-      const r = indexedDB.open("photo-culler-local");
-      r.onsuccess = () => resolve(r.result);
-      r.onerror = () => reject(r.error);
-    });
-    try {
-      const tx = db.transaction("cull-sessions", "readwrite"),
-        store = tx.objectStore("cull-sessions");
-      const request = store.openCursor();
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (!cursor) return;
-        const value = cursor.value;
-        if (!value.acceptedPlan)
-          throw Error("Fixture acceptance not persisted");
-        const signature = JSON.parse(value.acceptedPlan.signature);
-        signature.algorithmVersion = "rules-2.0-beta.2";
-        value.acceptedPlan.signature = JSON.stringify(signature);
-        value.algorithmVersion = value.acceptedAlgorithm = "rules-2.0-beta.2";
-        cursor.update(value);
-        cursor.continue();
-      };
-      await new Promise((resolve, reject) => {
-        tx.oncomplete = resolve;
-        tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error);
-      });
-    } finally {
-      db.close();
-    }
-  });
-  await page.reload();
-  await page.locator("#sessions button").first().click();
-  await expect(page.locator("#global")).toContainText("本地分析完成");
-  await expect(page.locator("#acceptance-status-results")).toContainText(
-    "尚未采纳",
-  );
-  await expect(
-    page
+for (const priorAlgorithm of ["rules-2.0-beta.2", "rules-2.0-beta.3"])
+  test(`${priorAlgorithm} accepted plan requires reacceptance after upgrade while favorite survives`, async ({
+    page,
+  }) => {
+    await page.goto("./");
+    await fixture(page);
+    await page.locator("#choose").click();
+    await expect(page.locator("#global")).toContainText("本地分析完成");
+    await page
       .locator(".card")
       .first()
-      .getByRole("button", { name: "★ 精选", exact: true }),
-  ).toBeVisible();
-});
+      .getByRole("button", { name: "☆ 精选", exact: true })
+      .click();
+    await page.locator("#accept").click();
+    await expect(page.locator("#acceptance-status-export")).toContainText(
+      "已采纳",
+    );
+    await page.evaluate(async (priorAlgorithm) => {
+      const db = await new Promise((resolve, reject) => {
+        const r = indexedDB.open("photo-culler-local");
+        r.onsuccess = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+      });
+      try {
+        const tx = db.transaction("cull-sessions", "readwrite"),
+          store = tx.objectStore("cull-sessions");
+        const request = store.openCursor();
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          const value = cursor.value;
+          if (!value.acceptedPlan)
+            throw Error("Fixture acceptance not persisted");
+          const signature = JSON.parse(value.acceptedPlan.signature);
+          signature.algorithmVersion = priorAlgorithm;
+          value.acceptedPlan.signature = JSON.stringify(signature);
+          value.algorithmVersion = value.acceptedAlgorithm = priorAlgorithm;
+          cursor.update(value);
+          cursor.continue();
+        };
+        await new Promise((resolve, reject) => {
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+          tx.onabort = () => reject(tx.error);
+        });
+      } finally {
+        db.close();
+      }
+    }, priorAlgorithm);
+    await page.reload();
+    await page.locator("#sessions button").first().click();
+    await expect(page.locator("#global")).toContainText("本地分析完成");
+    await expect(page.locator("#acceptance-status-results")).toContainText(
+      "尚未采纳",
+    );
+    await expect(
+      page
+        .locator(".card")
+        .first()
+        .getByRole("button", { name: "★ 精选", exact: true }),
+    ).toBeVisible();
+  });
 
 test("changed source invalidates a saved acceptance without aborting session analysis", async ({
   page,
@@ -887,4 +888,64 @@ test("label save failure preserves prior draft and position, then retry persists
   const after = (await readStudySession(page)).benchmark;
   expect(after.index).toBe(1);
   expect(after.labels["group:A"].source).toBe("human");
+});
+
+test("low-key representative keeps protected peers and technical-review filter respects manual choice", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory(),
+      source = await root.getDirectoryHandle("synthetic-low-key", {
+        create: true,
+      });
+    const night = new OffscreenCanvas(128, 128),
+      ctx = night.getContext("2d");
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, 128, 128);
+    for (let y = 32; y < 96; y++)
+      for (let x = 32; x < 96; x++) {
+        ctx.fillStyle = (x + y) % 2 ? "rgb(32,32,32)" : "rgb(96,96,96)";
+        ctx.fillRect(x, y, 1, 1);
+      }
+    const nightBlob = await night.convertToBlob({ type: "image/png" });
+    const day = new OffscreenCanvas(128, 128),
+      dc = day.getContext("2d");
+    dc.fillStyle = "#888";
+    dc.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 30; i++) {
+      dc.fillStyle = i % 2 ? "#555" : "#bbb";
+      dc.fillRect((i * 7) % 128, (i * 19) % 128, 8, 8);
+    }
+    const white = new OffscreenCanvas(128, 128);
+    white.getContext("2d").fillStyle = "white";
+    white.getContext("2d").fillRect(0, 0, 128, 128);
+    for (const [name, blob] of [
+      ["A.png", nightBlob],
+      ["B.png", nightBlob],
+      ["Day.png", await day.convertToBlob({ type: "image/png" })],
+      ["White.png", await white.convertToBlob({ type: "image/png" })],
+    ]) {
+      const f = await source.getFileHandle(name, { create: true }),
+        w = await f.createWritable();
+      await w.write(blob);
+      await w.close();
+    }
+    window.showDirectoryPicker = async () => source;
+  });
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.locator("#filter").selectOption("all");
+  await expect(page.locator(".card")).toHaveCount(4);
+  const candidate = page
+    .locator(".card")
+    .filter({ hasText: "低曝光画面存在连续清晰区域" });
+  await expect(candidate).toHaveCount(1);
+  await expect(candidate).toContainText("其余疑难照片继续保护");
+  await page.locator("#filter").selectOption("technical-review");
+  await expect(page.locator(".card")).toHaveCount(3);
+  await candidate.getByRole("button", { name: "保留", exact: true }).click();
+  await expect(page.locator(".card")).toHaveCount(2);
+  await page.locator("#filter").selectOption("all");
+  await expect(page.locator(".card")).toHaveCount(4);
 });

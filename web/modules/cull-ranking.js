@@ -1,6 +1,7 @@
 import { cluster, similarityKind } from "./cull-similarity.js";
 import { distance } from "./cull-similarity.js";
 import { ALGORITHM_VERSION } from "./cull-session.js";
+import { lowKeyEvidence } from "./cull-exposure.js";
 function panoramic(group) {
   const d = group.analysis?.sourceDimensions;
   return (
@@ -11,7 +12,12 @@ function panoramic(group) {
 }
 export function rank(
   groups,
-  { strength = "standard", mode = "burst", strategy = "local-focus" } = {},
+  {
+    strength = "standard",
+    mode = "burst",
+    strategy = "local-focus",
+    exposurePolicy = "contextual",
+  } = {},
 ) {
   const batches = cluster(groups),
     recommendations = {};
@@ -115,6 +121,27 @@ export function rank(
         ],
         algorithmVersion: ALGORITHM_VERSION,
       };
+    }
+    // Nomination never displaces a prior candidate or folds a protected peer.
+    if (
+      exposurePolicy === "contextual" &&
+      strategy === "local-focus" &&
+      !uncertain &&
+      !batch.some((g) => recommendations[g.id].plan === "include")
+    ) {
+      const candidate = ordered.find(
+        (g) => recommendations[g.id].plan === "protected" && lowKeyEvidence(g),
+      );
+      if (candidate)
+        recommendations[candidate.id] = {
+          ...recommendations[candidate.id],
+          plan: "include",
+          confidence: "low",
+          reasons: [
+            "低曝光画面存在连续清晰区域，选为同组代表；其余疑难照片继续保护，请复核拍摄意图",
+          ],
+          qualityFlags: ["low-key-candidate", "protected-peers-retained"],
+        };
     }
   }
   return { batches, recommendations };

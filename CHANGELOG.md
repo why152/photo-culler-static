@@ -1,5 +1,11 @@
 # Changes
 
+## 2.0 Beta low-key representatives — 2026-11-10 JST
+
+- Add bounded histogram/coherent-focus evidence and nominate one low-key representative only when a batch lacks an automatic candidate; preserve every protected peer and prior selection.
+- Add an optional technical-review filter including low-key warnings; retain manual priority. Version machine cache/accepted plans as beta.4.
+- Frozen multi-agent proxy moment recall84.89%→97.84%; historical proxy78.95%→95.26%; no new folded frames. Default visible queue remains704/1233, so70% human savings is still unverified.
+
 ## 2.0 Beta local-focus update — 2026-11-10 JST
 
 - Adapt pinned MIT Photo-Curator normalization and OpenPhotoCull coherent sharp-region/EXIF methods into the existing local Worker, with full notices in the static build.

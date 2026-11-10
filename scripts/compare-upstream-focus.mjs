@@ -8,15 +8,18 @@ import { resolve, join, relative, sep } from "node:path";
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
 import { compareFocusGroups } from "./upstream-focus-comparison.mjs";
+import { compareExposureGroups } from "./compare-exposure-candidates.mjs";
 const [
   sourceArg,
   labelsArg,
   outputArg = "output/upstream-focus-comparison.json",
+  comparisonKind = "focus",
 ] = process.argv.slice(2);
 if (!sourceArg || !labelsArg)
   throw Error(
-    "Usage: node scripts/compare-upstream-focus.mjs SOURCE LABELS_JSON [REPORT_JSON]",
+    "Usage: node scripts/compare-upstream-focus.mjs SOURCE LABELS_JSON [REPORT_JSON] [focus|exposure]",
   );
+assert.ok(["focus", "exposure"].includes(comparisonKind));
 const source = resolve(sourceArg),
   out = resolve(outputArg),
   rel = relative(source, out);
@@ -181,7 +184,12 @@ try {
   }
   for (const a of sizes.values())
     if (a.length > 1) for (const g of a) g.exact = g.sourceSHA;
-  Object.assign(report, compareFocusGroups(report.groups, draft));
+  Object.assign(
+    report,
+    (comparisonKind === "exposure"
+      ? compareExposureGroups
+      : compareFocusGroups)(report.groups, draft),
+  );
   report.focusComputeMs = report.groups.reduce(
     (n, g) => n + (g.analysis.focusAnalysisMs ?? 0),
     0,

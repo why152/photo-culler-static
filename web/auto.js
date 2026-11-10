@@ -8,6 +8,7 @@ import {
 } from "./modules/cull-session.js";
 import { exactCandidates, digest } from "./modules/cull-similarity.js";
 import { rank } from "./modules/cull-ranking.js";
+import { needsTechnicalReview } from "./modules/cull-review-priority.js";
 import {
   exportPlan,
   publicManifest,
@@ -414,6 +415,8 @@ function render() {
     (g) =>
       filter === "all" ||
       (filter === "shortlist" && state(g) !== "suppress") ||
+      (filter === "technical-review" &&
+        needsTechnicalReview(g, recommendations[g.id], human[g.id])) ||
       (filter === "suppress" && state(g) === "suppress") ||
       (filter === "favorite" && human[g.id]?.favorite) ||
       (filter === "burst" &&
