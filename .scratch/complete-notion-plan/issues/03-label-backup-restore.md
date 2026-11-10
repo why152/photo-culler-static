@@ -18,3 +18,8 @@ Local acceptance proven:116Node+65Chrome+12dist pass,1optional skipped. Browser
 roundtrip verifies backup after study loss, invalid/declined import preservation,
 AI provenance/settings, human/acceptance isolation, quota-failure rollback/retry.
 Code behavior complete; parent goal retains CI/deployment and human/platform gates.
+
+Release evidence: PR#4 merged as d447712; Pages42725568665 and both Linux/Windows
+CI runs42725087947/42725056008 succeeded. Actual HTTPS downloaded-study reimport
+preserved AI provenance, burst/compact settings and acceptance status. The prior
+parent note about pending deployment is superseded by this verified record.
