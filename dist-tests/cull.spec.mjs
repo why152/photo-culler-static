@@ -949,3 +949,212 @@ test("low-key representative keeps protected peers and technical-review filter r
   await page.locator("#filter").selectOption("all");
   await expect(page.locator(".card")).toHaveCount(4);
 });
+
+test("opt-in local effort records observe image opens, persist paused and preserve accepted output", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await fixture(page);
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.locator("#accept").click();
+  await expect(page.locator("#acceptance-status-export")).toContainText(
+    "已采纳",
+  );
+  const read = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const q = indexedDB.open("photo-culler-local");
+        q.onsuccess = () => resolve(q.result);
+        q.onerror = () => reject(q.error);
+      });
+      try {
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction("cull-sessions"),
+            q = tx.objectStore("cull-sessions").getAll();
+          q.onsuccess = () => resolve(q.result[0]);
+          q.onerror = () => reject(q.error);
+        });
+      } finally {
+        db.close();
+      }
+    });
+  const before = await read();
+  expect(before.effort).toBeUndefined();
+  const signature = before.acceptedPlan.signature;
+  await page.bringToFront();
+  await page.locator("#effort-open").click();
+  await page.locator("#effort-role").selectOption("baseline");
+  await page.locator("#effort-operator").selectOption("human");
+  await page.locator("#effort-start").click();
+  await expect(page.locator("#effort")).not.toBeVisible();
+  await expect(page.locator("#effort-summary")).toContainText("记录中");
+  await page.locator(".card img").first().click();
+  await expect(page.locator("#effort-summary")).toContainText("打开大图 1/4");
+  await page.keyboard.press("Escape");
+  await page.locator("#effort-open").click();
+  await page.locator("#effort-pause").click();
+  await expect(page.locator("#effort-status")).toContainText("已暂停");
+  await expect(page.locator("#effort-resume")).toBeEnabled();
+  const paused = await read();
+  expect(paused.acceptedPlan.signature).toBe(signature);
+  expect(paused.human).toEqual(before.human);
+  expect(paused.effort.runs[0].operator).toBe("synthetic");
+  expect(paused.effort.runs[0].viewerIds).toHaveLength(1);
+  expect(paused.effort.runs[0].foregroundMs).toBeGreaterThan(0);
+  await page.reload();
+  await page.locator("#sessions button").first().click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await expect(page.locator("#effort-summary")).toContainText("已暂停");
+  await expect(page.locator("#effort-summary")).toContainText("打开大图 1/4");
+  await page.locator("#effort-open").click();
+  await page.locator("#effort-resume").click();
+  await expect(page.locator("#effort")).not.toBeVisible();
+  await page.locator("#effort-open").click();
+  await page.locator("#effort-finish").click();
+  await expect(page.locator("#effort-status")).toContainText("已结束");
+  await expect(page.locator("#effort-start")).toBeEnabled();
+  const download = page.waitForEvent("download");
+  await page.locator("#effort-download").click();
+  const file = await download;
+  const exported = JSON.parse(await readFile(await file.path(), "utf8"));
+  expect(exported.type).toBe("local-review-effort");
+  expect(exported.data.runs[0].status).toBe("completed");
+  expect(exported.data.runs[0].operator).toBe("synthetic");
+  expect((await read()).acceptedPlan.signature).toBe(signature);
+  await page.evaluate(async () => {
+    const db = await new Promise((resolve) => {
+      const q = indexedDB.open("photo-culler-local");
+      q.onsuccess = () => resolve(q.result);
+    });
+    try {
+      const tx = db.transaction("cull-sessions", "readwrite"),
+        store = tx.objectStore("cull-sessions"),
+        cursor = store.openCursor();
+      cursor.onsuccess = () => {
+        const c = cursor.result;
+        if (!c) return;
+        const value = c.value;
+        delete value.effort;
+        c.update(value);
+        c.continue();
+      };
+      await new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  });
+  await page.reload();
+  await page.locator("#sessions button").first().click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.locator("#effort-open").click();
+  await page.locator("#effort-import").setInputFiles({
+    name: "effort-backup.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(exported)),
+  });
+  await expect(page.locator("#feedback")).toContainText("复核记录已恢复");
+  const restored = await read();
+  expect(restored.effort.runs[0].operator).toBe("synthetic");
+  expect(restored.effort.runs[0].viewerIds).toHaveLength(1);
+  expect(restored.acceptedPlan.signature).toBe(signature);
+});
+
+test("effort storage failure pauses the observation and leaves photo-review state usable", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await fixture(page);
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    window.__effortOriginalPut = put;
+    IDBObjectStore.prototype.put = function (value, ...args) {
+      if (this.name === "cull-sessions" && value.effort)
+        throw new DOMException(
+          "synthetic effort quota failure",
+          "QuotaExceededError",
+        );
+      return put.call(this, value, ...args);
+    };
+  });
+  await page.locator("#effort-open").click();
+  await page.locator("#effort-start").click();
+  await expect(page.locator("#feedback")).toContainText("复核记录保存失败");
+  await expect(page.locator("#effort-status")).toContainText("已暂停");
+  await expect(page.locator("#effort-download")).toBeEnabled();
+  await page.evaluate(() => {
+    IDBObjectStore.prototype.put = window.__effortOriginalPut;
+  });
+  await page.locator("#effort-resume").click();
+  await expect(page.locator("#effort")).not.toBeVisible();
+  await page.locator("#accept").click();
+  await expect(page.locator("#acceptance-status-export")).toContainText(
+    "已采纳",
+  );
+});
+
+test("switching roots pauses effort in its original session without leaking it into the next root", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await fixture(page);
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.locator("#effort-open").click();
+  await page.locator("#effort-start").click();
+  await expect(page.locator("#effort")).not.toBeVisible();
+  await page.locator(".card img").first().click();
+  await expect(page.locator("#effort-summary")).toContainText("打开大图 1/4");
+  await page.keyboard.press("Escape");
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory(),
+      other = await root.getDirectoryHandle("effort-other", { create: true }),
+      f = await other.getFileHandle("A.jpg", { create: true }),
+      w = await f.createWritable();
+    await w.write(window.__blob);
+    await w.close();
+    window.showDirectoryPicker = async () => other;
+  });
+  await page.locator('[data-space="import"]').click();
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("effort-other");
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await expect(page.locator("#effort-summary")).toBeHidden();
+  const rows = await page.evaluate(async () => {
+    const db = await new Promise((resolve) => {
+      const q = indexedDB.open("photo-culler-local");
+      q.onsuccess = () => resolve(q.result);
+    });
+    try {
+      return await new Promise((resolve) => {
+        const q = db
+          .transaction("cull-sessions")
+          .objectStore("cull-sessions")
+          .getAll();
+        q.onsuccess = () => resolve(q.result);
+      });
+    } finally {
+      db.close();
+    }
+  });
+  expect(rows.find((r) => r.name === "camera").effort.runs[0].status).toBe(
+    "paused",
+  );
+  expect(
+    rows.find((r) => r.name === "camera").effort.runs[0].viewerIds,
+  ).toHaveLength(1);
+  expect(rows.find((r) => r.name === "effort-other").effort).toBeUndefined();
+  await page.locator('[data-space="import"]').click();
+  await page
+    .locator("#sessions button")
+    .filter({ hasText: "camera ·" })
+    .click();
+  await expect(page.locator("#global")).toContainText("camera · 7");
+  await expect(page.locator("#effort-summary")).toContainText("已暂停");
+  await expect(page.locator("#effort-summary")).toContainText("打开大图 1/4");
+});

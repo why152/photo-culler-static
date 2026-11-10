@@ -13,8 +13,6 @@ jobs:
         include:
           - os: ubuntu-latest
             channel: chrome
-          - os: windows-latest
-            channel: msedge
     runs-on: ${{ matrix.os }}
     env:
       PW_CHANNEL: ${{ matrix.channel }}

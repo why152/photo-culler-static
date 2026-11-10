@@ -1,8 +1,13 @@
 # Photo Culler 2.0 Beta candidate validation
 
-Latest follow-up: beta.3 ports licensed upstream focus methods. See the
-[retrospective comparison and source-integrity evidence](research/culler-2-upstream-focus.md).
-The beta.2 measurements below remain historical; neither result is human acceptance.
+Latest personal scope (2026-11-10): Mac Chrome only, per ADR 0003. Frozen beta.4
+independent 500-JPEG AI-proxy moment recall is 68/70 (97.14%), union72/73 (98.63%).
+All2213 sources unchanged. See [independent study](research/culler-2-mac-independent-study.md)
+and [opt-in effort records](photo-culler-2-effort.md). Local136Node /66Chrome /19dist
+passed,1existing optional benchmark skipped. Actual human preference and70% effort
+acceptance remain open. The original beta.2 report below is historical, including
+its then-missing native copy/deployment evidence; later receipts supersede those
+platform details without converting AI or synthetic tests into human evidence.
 
 Date: 2026-11-09 JST. Baseline main: b46899ec9dcfc73b08e2b642ea5b71ad9eb8965b.
 Implementation branch: codex/photo-culler-2. Source: execution book section 0.

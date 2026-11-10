@@ -26,9 +26,11 @@ import {
 } from "./modules/cull-acceptance.js";
 import { ReviewDecisionHistory } from "./modules/review-persistence.js";
 import { installBenchmark } from "./modules/cull-benchmark-ui.js";
+import { installReviewEffort } from "./modules/review-effort-ui.js";
 import { ViewerZoom } from "./modules/viewer-zoom.js";
 const $ = (id) => document.getElementById(id);
 const store = new BrowserReviewStore();
+let effortController = null;
 let root = null,
   session = null,
   groups = [],
@@ -71,6 +73,7 @@ function show(space) {
   }
   if (space === "results") render();
   if (space === "export") renderPlan();
+  effortController?.surfaceChanged();
 }
 function setBusy(value) {
   busy = value;
@@ -205,6 +208,7 @@ async function open(directory) {
   if (busy) return;
   setBusy(true);
   try {
+    await effortController?.pauseForContextChange();
     await saveQueue;
     if (persistenceError) throw persistenceError;
     await permission(directory);
@@ -347,6 +351,7 @@ async function open(directory) {
     paused = false;
     $("pause").textContent = "暂停";
     setBusy(false);
+    effortController?.contextReady();
     renderPlan();
     void sessions();
   }
@@ -366,10 +371,14 @@ function state(group) {
 }
 async function decide(group, decision, favorite = false) {
   if (busy) return;
+  const decisionSession = session?.id;
+  const decisionContext = groups;
   try {
     const sourceSHA = group.source
       ? await digest(await group.source.handle.getFile())
       : null;
+    if (session?.id !== decisionSession || groups !== decisionContext || busy)
+      return message("目录已改变，请在当前目录重新作决定。");
     const nextDecision = {
       decision: favorite ? "keep" : decision,
       favorite,
@@ -378,6 +387,7 @@ async function decide(group, decision, favorite = false) {
     };
     decisionHistory.record(human, group.id, nextDecision);
     await save();
+    effortController?.decision(group.id);
     render();
   } catch (e) {
     message("无法保存决定：" + e.message);
@@ -426,6 +436,7 @@ function render() {
   if (offset >= visibleCount) offset = 0;
   // Bound DOM and active URLs. Revoke old previews before rebuilding a page.
   release();
+  effortController?.resetGrid();
   $("grid").replaceChildren();
   for (const g of visible.slice(offset, offset + limit)) {
     const card = document.createElement("article");
@@ -510,6 +521,7 @@ function render() {
       button("恢复机器建议", () => void decide(g, "unreviewed")),
     );
     $("grid").append(card);
+    effortController?.observeGrid(card, g.id);
   }
   $("more").hidden = visible.length <= limit;
   $("more").textContent =
@@ -627,6 +639,7 @@ async function compare(list) {
   releaseComparison();
   $("zoom-one").disabled = true;
   const generation = ++compareGeneration;
+  const comparisonSession = session?.id;
   compared = list;
   zooms.length = 0;
   $("compare-images").replaceChildren();
@@ -639,6 +652,18 @@ async function compare(list) {
     const img = document.createElement("img");
     img.alt = g.path;
     img.draggable = false;
+    let observed = false;
+    img.onload = () => {
+      if (
+        !observed &&
+        session?.id === comparisonSession &&
+        generation === compareGeneration &&
+        $("compare").open
+      ) {
+        observed = true;
+        effortController?.viewerOpened(g.id);
+      }
+    };
     // At most four bounded preview bitmaps. Original 1:1 uses source dimensions but
     // oversized image decode is limited to the existing 1600px preview contract.
     frame.append(img);
@@ -863,10 +888,12 @@ $("choose").onclick = () => {
       if (e.name !== "AbortError") message(e.message);
     });
 };
-$("strength").onchange = () => {
+$("strength").onchange = async () => {
+  await effortController?.pauseForContextChange();
   if (!busy) recompute();
 };
-$("mode").onchange = () => {
+$("mode").onchange = async () => {
+  await effortController?.pauseForContextChange();
   if (!busy) recompute();
 };
 $("filter").onchange = () => {
@@ -1100,4 +1127,35 @@ installBenchmark({
   save,
   message,
   download,
+});
+
+function persistEffort(data, sessionId) {
+  if (!root || session?.id !== sessionId)
+    return Promise.reject(new Error("目录会话已变化"));
+  const directory = root;
+  const promise = saveQueue
+    .catch(() => {})
+    .then(() =>
+      store.saveSession(directory, { effort: structuredClone(data) }),
+    );
+  saveQueue = promise.catch(() => {});
+  return promise;
+}
+effortController = installReviewEffort({
+  getState: () => ({
+    groups,
+    human,
+    session,
+    busy,
+    view,
+    preferences: { mode: $("mode").value, strength: $("strength").value },
+  }),
+  persist: persistEffort,
+  message,
+  download,
+  onStart: (role) => {
+    $("filter").value = role === "baseline" ? "all" : "technical-review";
+    offset = 0;
+    show("results");
+  },
 });
