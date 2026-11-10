@@ -73,3 +73,8 @@ available; do not describe this as autonomous reliable photographic judgment.
 The application prioritizes the 92 uncertain items and then AI suggested-keep
 frames that the rule engine folded. The local label/report pair is the reusable
 handoff for correcting those decisions without relabeling everything from zero.
+
+A repeat with frozen `rules-2.0-beta.2` took228.00s and produced the same recall,
+queue and85folded-target counts. All2466 source files were again SHA/size/mtime/list
+checked unchanged and the isolated profile removed. The later label-backup patch
+does not change image grouping/ranking or these proxy results.

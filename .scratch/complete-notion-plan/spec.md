@@ -20,7 +20,8 @@ Beta. Existing main de8ca04 is deployed; green CI is not full acceptance.
 - AI proxy labeling complete1141/1233,92 uncertain; 75.26% automatic moment recall
   does not pass95%; human preference/effort acceptance remains open.
 - Models explicitly deferred under section0 gating, not marked as implemented.
-- Final CI, authorized deployment, HTTPS verification and Notion sync pending.
+- PR#3 final CI, authorized deployment, native HTTPS verification and Notion sync
+  complete at main1adee7d. Label-backup recovery follow-up awaits CI/deployment.
 
 ## Comments
 Earlier reports overstated engineering completion. Each criterion now needs a

@@ -4,6 +4,7 @@ import {
   createBenchmark,
   evaluateBenchmark,
   importProxyLabels,
+  restoreBenchmark,
 } from "./cull-benchmark.js";
 export function installBenchmark({ getState, save, message, download }) {
   const button = document.createElement("button");
@@ -13,10 +14,43 @@ export function installBenchmark({ getState, save, message, download }) {
   const dialog = document.createElement("dialog");
   dialog.id = "benchmark";
   dialog.setAttribute("aria-labelledby", "benchmark-title");
-  dialog.innerHTML = `<form method="dialog"><button>保存进度并关闭</button></form><h2 id="benchmark-title">本地偏好盲标</h2><p>不显示机器推荐。先选调参或独立验收集，再逐组标记；同一重要瞬间可填相同编号。标注不会修改照片、审核决定或导出计划。独立验收需另外一次拍摄的 500–1000 组。</p><label>样本用途 <select id="benchmark-split"><option value="held-out">独立验收集</option><option value="calibration">调参集</option></select></label><label>导入 AI 代理标签 JSON（仅本地）<input id="benchmark-import" type="file" accept="application/json,.json"></label><label>随机样本数<input id="benchmark-size" type="number" min="1" max="1000" value="500"></label><label><input id="benchmark-attest" type="checkbox">独立盲标：这批为未用于调参的拍摄，标注时不参考推荐</label><button id="benchmark-start">开始 / 重置本批盲标</button><p id="benchmark-position" role="status"></p><img id="benchmark-image" alt="当前盲标图片"><p id="benchmark-name"></p><p id="benchmark-reason"></p><label>重要瞬间编号（可选）<input id="benchmark-moment" placeholder="同一瞬间填写相同编号"></label><div><button id="benchmark-yes">必须保留</button><button id="benchmark-no">不必保留</button><button id="benchmark-unsure">暂不确定</button><button id="benchmark-back">上一组</button></div><button id="benchmark-download">下载标注与冻结评估 JSON</button><pre id="benchmark-result"></pre>`;
+  dialog.innerHTML = `<form method="dialog"><button>保存进度并关闭</button></form><h2 id="benchmark-title">本地偏好盲标</h2><p>不显示机器推荐。先选调参或独立验收集，再逐组标记；同一重要瞬间可填相同编号。标注不会修改照片、审核决定或导出计划。独立验收需另外一次拍摄的 500–1000 组。</p><label>样本用途 <select id="benchmark-split"><option value="held-out">独立验收集</option><option value="calibration">调参集</option></select></label><label>导入 AI 草稿 / 已下载的标注 JSON（仅本地）<input id="benchmark-import" type="file" accept="application/json,.json"></label><label>随机样本数<input id="benchmark-size" type="number" min="1" max="1000" value="500"></label><label><input id="benchmark-attest" type="checkbox">独立盲标：这批为未用于调参的拍摄，标注时不参考推荐</label><button id="benchmark-start">开始 / 重置本批盲标</button><p id="benchmark-position" role="status"></p><img id="benchmark-image" alt="当前盲标图片"><p id="benchmark-name"></p><p id="benchmark-reason"></p><label>重要瞬间编号（可选）<input id="benchmark-moment" placeholder="同一瞬间填写相同编号"></label><div><button id="benchmark-yes">必须保留</button><button id="benchmark-no">不必保留</button><button id="benchmark-unsure">暂不确定</button><button id="benchmark-back">上一组</button></div><button id="benchmark-download">下载标注与冻结评估 JSON</button><pre id="benchmark-result"></pre>`;
   document.body.append(dialog);
   const $ = (id) => dialog.querySelector("#" + id);
-  let preview = null;
+  let preview = null,
+    saving = false;
+  const editing = [
+    "benchmark-start",
+    "benchmark-import",
+    "benchmark-split",
+    "benchmark-size",
+    "benchmark-attest",
+    "benchmark-moment",
+    "benchmark-yes",
+    "benchmark-no",
+    "benchmark-unsure",
+    "benchmark-back",
+    "benchmark-download",
+  ];
+  async function persistStudy(next) {
+    if (saving) throw new Error("标注正在保存，请稍后重试");
+    const session = getState().session,
+      previous = session.benchmark;
+    saving = true;
+    for (const id of editing) $(id).disabled = true;
+    $("benchmark-position").textContent = "正在保存标注进度…";
+    session.benchmark = next;
+    try {
+      await save();
+    } catch (error) {
+      session.benchmark = previous;
+      throw error;
+    } finally {
+      saving = false;
+      for (const id of editing) $(id).disabled = false;
+      if (dialog.open) render();
+    }
+  }
   function study() {
     return getState().session?.benchmark;
   }
@@ -106,14 +140,14 @@ export function installBenchmark({ getState, save, message, download }) {
       !confirm("重新开始会替换本会话的盲标进度。请先下载需要保留的标注。")
     )
       return;
-    const { groups, recommendations, session } = getState();
-    session.benchmark = createBenchmark(groups, recommendations, {
+    const { groups, recommendations } = getState();
+    const next = createBenchmark(groups, recommendations, {
       split: $("benchmark-split").value,
       size: Number($("benchmark-size").value) || 500,
+      preferences: getState().preferences,
     });
-    session.benchmark.blindingAttested = $("benchmark-attest").checked;
-    await save();
-    render();
+    next.blindingAttested = $("benchmark-attest").checked;
+    await persistStudy(next);
   };
   for (const [id, value] of [
     ["benchmark-yes", true],
@@ -121,8 +155,8 @@ export function installBenchmark({ getState, save, message, download }) {
     ["benchmark-unsure", null],
   ])
     $(id).onclick = async () => {
-      if (!valid()) return;
-      const s = study(),
+      if (!valid() || saving) return;
+      const s = structuredClone(study()),
         key = s.deck[Math.min(s.index, s.deck.length - 1)];
       s.labels[key] = {
         mustKeep: value,
@@ -130,21 +164,33 @@ export function installBenchmark({ getState, save, message, download }) {
         source: "human",
       };
       s.index = Math.min(s.index + 1, s.deck.length);
-      await save();
-      render();
+      await persistStudy(s);
     };
   $("benchmark-import").onchange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
       const draft = JSON.parse(await file.text()),
-        state = getState(),
-        mapped = importProxyLabels(draft, state.groups);
+        state = getState();
+      if (draft.study) {
+        const restored = restoreBenchmark(draft, state.groups);
+        if (
+          study() &&
+          Object.keys(study().labels).length &&
+          !confirm("导入将替换当前标注进度。请先下载需要保留的标注。")
+        )
+          return;
+        await persistStudy(restored);
+        message("已恢复标注进度与冻结推荐；人工审核、精选和采纳计划未改变。");
+        return;
+      }
+      const mapped = importProxyLabels(draft, state.groups);
       if (!Object.keys(mapped.labels).length)
         throw new Error("没有路径及内容 SHA 同时匹配的照片");
       const s = createBenchmark(state.groups, state.recommendations, {
         split: "held-out",
         size: state.groups.length,
+        preferences: state.preferences,
       });
       s.labels = mapped.labels;
       s.deck = s.deck.filter((id) => mapped.labels[id]);
@@ -159,9 +205,13 @@ export function installBenchmark({ getState, save, message, download }) {
             : 3;
       s.deck.sort((a, b) => priority(a) - priority(b));
       s.importedProxy = true;
-      state.session.benchmark = s;
-      await save();
-      render();
+      if (
+        study() &&
+        Object.keys(study().labels).length &&
+        !confirm("导入将替换当前标注进度。请先下载需要保留的标注。")
+      )
+        return;
+      await persistStudy(s);
       message(
         "已导入 " +
           s.deck.length +
@@ -175,10 +225,11 @@ export function installBenchmark({ getState, save, message, download }) {
       event.target.value = "";
     }
   };
-  $("benchmark-back").onclick = () => {
-    if (valid()) {
-      study().index = Math.max(0, study().index - 1);
-      render();
+  $("benchmark-back").onclick = async () => {
+    if (valid() && !saving) {
+      const next = structuredClone(study());
+      next.index = Math.max(0, next.index - 1);
+      await persistStudy(next);
     }
   };
   $("benchmark-download").onclick = () => {

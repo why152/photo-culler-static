@@ -1087,7 +1087,13 @@ window.addEventListener("pagehide", () => {
 void sessions();
 
 installBenchmark({
-  getState: () => ({ groups, recommendations, session, busy }),
+  getState: () => ({
+    groups,
+    recommendations,
+    session,
+    busy,
+    preferences: { mode: $("mode").value, strength: $("strength").value },
+  }),
   save,
   message,
   download,

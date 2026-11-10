@@ -140,3 +140,21 @@ that no queued second decode starts. The focused11-test suite passes locally.
 This fixes the observation schedule rather than weakening cancellation behavior.
 Modal shortcut testing also caught unsupported dialog fullscreen: document-root
 fullscreen now enters/exits successfully; modal help remains visible in the modal.
+
+## Label-backup recovery closure
+
+Final workflow audit found study downloads could not be reimported through the
+AI-only import field. The field now restores downloaded study JSON against exact
+source fingerprint/SHA identity and algorithm, retains frozen settings and AI
+provenance, and confirms before replacing existing labels. Invalid/declined
+imports leave current work intact. Failed persistence restores prior in-memory
+labels/position and permits retry. Human favorites and accepted output snapshots
+are independent and unchanged in the browser roundtrip test. Missing historical
+settings/provenance cannot silently gain independent-blind acceptance.
+
+Local116Node+65Chrome+12dist pass,1existing optional benchmark skipped. This patch
+adds no image analysis or file-copy changes; prior native/HTTPS safety and AI
+proxy quality results remain scoped to the verified rule version. PR#3 deployed
+1adee7d successfully; its final Linux/Windows CI passed114Node+63browser+10dist per
+platform with3optional/platform skips. Backup closure release evidence is tracked
+in its follow-up PR, not inferred from these previous runs.

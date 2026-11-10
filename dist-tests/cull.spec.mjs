@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 async function fixture(page) {
   await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory();
@@ -476,7 +477,9 @@ test("review shortcuts undo independently, narrow survey falls back, inputs keep
   await expect(page.locator("#compare-shortcuts")).toBeHidden();
   await page.keyboard.press("f");
   await expect
-    .poll(() => page.evaluate(() => document.fullscreenElement?.tagName.toLowerCase()))
+    .poll(() =>
+      page.evaluate(() => document.fullscreenElement?.tagName.toLowerCase()),
+    )
     .toBe("html");
   await page.keyboard.press("f");
   await expect
@@ -636,4 +639,182 @@ test("target permission denial explains the safe fallback and allows retry witho
       async () => (await Array.fromAsync(window.__target.values())).length,
     ),
   ).toBe(0);
+});
+
+async function readStudySession(page) {
+  return page.evaluate(async () => {
+    const db = await new Promise((r) => {
+      const q = indexedDB.open("photo-culler-local");
+      q.onsuccess = () => r(q.result);
+    });
+    const rows = await new Promise((r) => {
+      const q = db
+        .transaction("cull-sessions")
+        .objectStore("cull-sessions")
+        .getAll();
+      q.onsuccess = () => r(q.result);
+    });
+    db.close();
+    return rows[0];
+  });
+}
+async function oneProxyDraft(page) {
+  return page.evaluate(async () => {
+    const file = await (await window.__source.getFileHandle("A.jpg")).getFile();
+    const sha = Array.from(
+      new Uint8Array(
+        await crypto.subtle.digest("SHA-256", await file.arrayBuffer()),
+      ),
+      (b) => b.toString(16).padStart(2, "0"),
+    ).join("");
+    return {
+      version: 1,
+      provenance: "ai-proxy",
+      labels: [
+        {
+          relativePath: "A.jpg",
+          sourceSHA256: sha,
+          mustKeep: true,
+          momentId: "moment-a",
+        },
+      ],
+    };
+  });
+}
+function localJSON(value) {
+  return {
+    name: "local-study.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(value)),
+  };
+}
+
+test("downloaded labels restore after browser study loss, invalid imports or declined replacements preserve existing work", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await fixture(page);
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page
+    .locator(".card")
+    .first()
+    .getByRole("button", { name: "☆ 精选", exact: true })
+    .click();
+  await expect(
+    page
+      .locator(".card")
+      .first()
+      .getByRole("button", { name: "★ 精选", exact: true }),
+  ).toBeVisible();
+  await page.locator("#accept").click();
+  await expect(page.locator("#feedback")).toContainText("已采纳");
+  const decisions = await readStudySession(page);
+  await page.locator("#benchmark-open").click();
+  await page
+    .locator("#benchmark-import")
+    .setInputFiles(localJSON(await oneProxyDraft(page)));
+  await expect(page.locator("#feedback")).toContainText("已导入 1");
+  await page.locator("#benchmark-yes").click();
+  await expect(page.locator("#benchmark-result")).toContainText(
+    "human-confirmed-ai-draft-not-independent-blind",
+  );
+  const pending = page.waitForEvent("download");
+  await page.locator("#benchmark-download").click();
+  const file = await pending;
+  const backup = JSON.parse(await readFile(await file.path(), "utf8"));
+  expect(backup.study.preferences).toEqual({
+    mode: "burst",
+    strength: "compact",
+  });
+  expect(backup.study.labels["group:A"].source).toBe("human");
+  await page
+    .locator("#benchmark-import")
+    .setInputFiles(
+      localJSON({ study: { ...backup.study, algorithmVersion: "old" } }),
+    );
+  await expect(page.locator("#feedback")).toContainText("备份来源或算法");
+  expect((await readStudySession(page)).benchmark).toEqual(backup.study);
+  const replacing = page.waitForEvent("dialog");
+  await page.locator("#benchmark-import").setInputFiles(localJSON(backup));
+  await (await replacing).dismiss();
+  await expect(page.locator("#benchmark-import")).toHaveValue("");
+  expect((await readStudySession(page)).benchmark).toEqual(backup.study);
+  await page
+    .locator("#benchmark")
+    .getByRole("button", { name: "保存进度并关闭" })
+    .click();
+  await page.evaluate(async () => {
+    const db = await new Promise((r) => {
+      const q = indexedDB.open("photo-culler-local");
+      q.onsuccess = () => r(q.result);
+    });
+    await new Promise((r) => {
+      const tx = db.transaction("cull-sessions", "readwrite"),
+        store = tx.objectStore("cull-sessions"),
+        q = store.openCursor();
+      q.onsuccess = () => {
+        const c = q.result;
+        if (c) c.update({ ...c.value, benchmark: null });
+      };
+      tx.oncomplete = r;
+    });
+    db.close();
+  });
+  await page.reload();
+  await page.locator("#sessions button").first().click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.locator("#benchmark-open").click();
+  await page.locator("#benchmark-import").setInputFiles(localJSON(backup));
+  await expect(page.locator("#feedback")).toContainText(
+    "已恢复标注进度与冻结推荐",
+  );
+  const restored = await readStudySession(page);
+  expect(restored.benchmark).toEqual(backup.study);
+  expect(restored.human).toEqual(decisions.human);
+  expect(restored.acceptedPlan).toEqual(decisions.acceptedPlan);
+  await expect(page.locator("#benchmark-result")).toContainText(
+    "human-confirmed-ai-draft-not-independent-blind",
+  );
+});
+test("label save failure preserves prior draft and position, then retry persists a single human confirmation", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await fixture(page);
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.locator("#benchmark-open").click();
+  await page
+    .locator("#benchmark-import")
+    .setInputFiles(localJSON(await oneProxyDraft(page)));
+  await expect(page.locator("#feedback")).toContainText("已导入 1");
+  const before = (await readStudySession(page)).benchmark;
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    window.__labelSaveFail = true;
+    IDBObjectStore.prototype.put = function (...args) {
+      if (this.name === "cull-sessions" && window.__labelSaveFail) {
+        window.__labelSaveFail = false;
+        throw new DOMException("simulated label quota", "QuotaExceededError");
+      }
+      return put.apply(this, args);
+    };
+  });
+  await page.locator("#benchmark-yes").click();
+  await expect(page.locator("#feedback")).toContainText(
+    "simulated label quota",
+  );
+  await expect(page.locator("#benchmark-result")).toContainText(
+    "ai-proxy-only",
+  );
+  expect((await readStudySession(page)).benchmark).toEqual(before);
+  await expect(page.locator("#benchmark-yes")).toBeEnabled();
+  await page.locator("#benchmark-yes").click();
+  await expect(page.locator("#benchmark-result")).toContainText(
+    "human-confirmed-ai-draft-not-independent-blind",
+  );
+  const after = (await readStudySession(page)).benchmark;
+  expect(after.index).toBe(1);
+  expect(after.labels["group:A"].source).toBe("human");
 });
