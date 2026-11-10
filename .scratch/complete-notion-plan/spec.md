@@ -53,3 +53,14 @@ Documentation-only reconciliation does not change this runtime artifact. Newest
 workflow/deployment state is authoritative in GitHub; these immutable references
 prove the functional release without treating later documentation commits as new
 photographic-quality evidence.
+
+## Current personal scope, 2026-11-10
+
+The historical evidence above is superseded for platform scope by ADR 0003: user
+Mac Chrome only; Windows/Edge are no longer delivery blockers. Current deployed
+baseline is 5e7ea56 (PR 8), Pages 42776651496. Independent frozen beta.4 study
+now passes 68/70 merged and 72/73 union AI-proxy moment recall on 500 SHA-disjoint
+JPEGs; all 2213 sources unchanged. This is not human quality/effort acceptance.
+Opt-in local effort observation is implemented and tested on the current branch;
+actual user observations remain open. See mac-chrome-personal-validation tracker
+and docs/research/culler-2-mac-independent-study.md.

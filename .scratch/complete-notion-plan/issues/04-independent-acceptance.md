@@ -1,6 +1,6 @@
 # Independent acceptance and conditional platform evidence
 Status: Awaiting external evidence
-Blocked by: Real human preference/effort observations; conditional native platform access; test-cache clear/retain decision
+Blocked by: Actual human preference/effort observations within personal Mac Chrome scope
 
 ## Required independent quality evidence
 Notion section0.8/7 requires independent500–1000-photo batches with actual human
@@ -52,3 +52,12 @@ Only close independent quality acceptance when genuine data proves the required
 metrics. Conditional feature gates stay closed until the corresponding proof or
 an explicit user scope decision. Do not mark the parent goal complete solely
 because the engineering PRs, CI and deployment succeeded.
+
+## Current scope reconciliation, 2026-11-10
+
+ADR 0003 records explicit user scope: Mac Chrome only. Historical Windows/Edge
+and external move proof are not current delivery blockers. The existing 4181
+regular-profile cache is housekeeping, not acceptance; do not bypass the browser
+settings denial. Independent 500-JPEG frozen beta.4 AI proxy recall is 68/70,
+union 72/73; humanConfirmed remains zero. Local effort tooling is implemented,
+but actual human observations and independent quality remain open.
