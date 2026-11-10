@@ -158,3 +158,30 @@ proxy quality results remain scoped to the verified rule version. PR#3 deployed
 1adee7d successfully; its final Linux/Windows CI passed114Node+63browser+10dist per
 platform with3optional/platform skips. Backup closure release evidence is tracked
 in its follow-up PR, not inferred from these previous runs.
+
+## Final engineering release reconciliation
+
+PR#4 merged as `d447712aa45c8b9e86839f9c9b47341dfd459db6`.
+[Pages42725568665](https://github.com/why152/photo-culler-static/actions/runs/42725568665)
+succeeded. [PR CI42725087947](https://github.com/why152/photo-culler-static/actions/runs/42725087947)
+and [push CI42725056008](https://github.com/why152/photo-culler-static/actions/runs/42725056008)
+passed116Node+63browser+12dist on each Linux Chrome/Windows Edge runner, with3
+existing optional/platform skips. These counts were read from the actual CI logs.
+Local Mac116Node+65Chrome+12dist passed,1optional benchmark skipped.
+
+Actual production HTTPS backup roundtrip passed after deployment, retaining
+AI-assisted provenance, frozen burst/compact settings and accepted output status.
+Synthetic copy4files all SHA matched; legacy/auto/robots/sitemap returned200; no
+page/resource/non-site or non-GET request failures. Runtime JS SHA256 matched the
+verified build: `13ee94fc5a281ab25ede51648ad98d7f351a03eb91fe554a266b1615efbc78de`.
+This supersedes earlier historical notes saying backup CI/deployment was pending.
+
+Engineering publication is complete; whole-plan acceptance is not. Independent
+human labels and observed human viewing/time measurements remain absent. AI proxy
+moment recall75.26% is below95%;97.37% protected-queue coverage is not automatic
+recall. Conditional native Windows/removable-device/move gates remain unproved,
+so those capabilities stay limited as section0 allows. The loopback-origin cache
+requires the user's clear/retain decision because browser security blocked
+settings access; physical test images were already removed. The local tracker
+records these remaining evidence needs explicitly instead of leaving engineering
+issues ambiguously in progress or inventing acceptance results.

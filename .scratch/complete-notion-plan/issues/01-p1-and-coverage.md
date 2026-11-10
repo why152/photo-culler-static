@@ -1,5 +1,5 @@
 # P1 repair and remaining requirement audit
-Status: In Progress
+Status: Done — engineering repair and coverage audit
 Blocked by: None (human-quality acceptance separately requires labels)
 
 ## Acceptance
@@ -29,3 +29,9 @@ Final UI verification caught dialog fullscreen rejection; document-root fullscre
 and modal question-mark help now pass. Windows Edge repeated run exposed a second
 legacy test delay assumption; controlled first-decode gate preserves cancellation
 assertion and focused11tests pass. Final head CI awaited before merge.
+
+2026-11-10 final reconciliation: PR#3 and#4 merged, final functional release d447712
+and deploy42725568665 success; HTTPS copy/backup/legacy/network evidence verified.
+All three P1 repair criteria and the requirement-to-evidence audit are complete.
+This closes engineering repair, not independent quality/conditional native-platform
+acceptance. Those explicit limits are issue04; no P1 deployment remains pending.
