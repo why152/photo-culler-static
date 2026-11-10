@@ -1,5 +1,5 @@
 # Reuse upstream focus analysis without changing product architecture
-Status: In Progress
+Status: Done (implementation and local comparison; independent product acceptance remains open)
 Source: Notion413d0befadbd8126b9a9cda079c62a01 sections0/3/4; user asks to advance by reusing excellent projects
 
 Adapt licensed, commit-pinned Photo Curator contrast-normalized focus and
@@ -13,3 +13,7 @@ Use first300 for strategy selection, remaining data for retrospective checking
 no human or unseen-data claim. Do not tune upstream constants to these labels.
 Preserve special-sequence/file protections and human precedence. Reject a default
 change if moment coverage regresses or the review queue grows without benefit.
+
+Implementation and local acceptance completed in PR #6:
+https://github.com/why152/photo-culler-static/pull/6
+Cross-platform CI and deployment receipts are maintained on that PR.

@@ -1,5 +1,5 @@
 # Licensed source adaptation and measured comparison
-Status: In Progress
+Status: Done (local implementation acceptance)
 Blocked by: None for code/AI proxy comparison; genuine human signoff remains separate
 
 ## Acceptance
@@ -20,4 +20,6 @@ from the911-frame check. Full proxy automatic moment recall143→150/190, visibl
 All2466original hashes/sizes/mtime/paths unchanged; no human acceptance claim.
 Local122Node,66Chrome,14dist passed;1existing optional benchmark skipped.
 Algorithm beta.3 invalidates old machine caches/acceptance and preserves human
-favorites, including a built-page upgrade regression. CI/PR/release pending.
+favorites, including a built-page upgrade regression. PR #6 tracks current
+cross-platform CI and deployment evidence separately:
+https://github.com/why152/photo-culler-static/pull/6
