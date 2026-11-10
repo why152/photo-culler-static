@@ -12,6 +12,12 @@ licensed upstream-focus follow-up improves this to150/190=78.95%, still below95%
 visible/protected coverage187/190=98.42% must not replace automatic recall.
 Human effort reduction remains unmeasured. See docs/research/culler-2-upstream-focus.md.
 
+Subsequent user-authorized multi-agent proxy study is complete: two1233-frame
+ballots,326 adjudications,301keep/763optional/169protected. On its distinct139
+required-moment labels beta.3 recalls118/139=84.89% automatically; this is not
+an improvement claim versus the old190-moment label set. All agents retain AI
+provenance and humanConfirmed0. See docs/research/culler-2-multi-agent-visual-review.md.
+
 The shipped local workflow imports SHA-bound AI drafts, prioritizes uncertainty
 and folded suggested keeps, records individual human confirmation, supports fresh
 blind sampling, freezes settings/recommendations, and restores downloaded backups.
