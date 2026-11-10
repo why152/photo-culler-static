@@ -8,6 +8,7 @@ import {
 } from "./cull-benchmark.js";
 export function installBenchmark({ getState, save, message, download }) {
   const button = document.createElement("button");
+  button.className = "advanced-control";
   button.textContent = "本地偏好盲标与评估";
   button.id = "benchmark-open";
   document.querySelector("#global").after(button);

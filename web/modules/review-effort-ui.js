@@ -14,6 +14,7 @@ export function installReviewEffort({
   onStart,
 }) {
   const button = document.createElement("button");
+  button.className = "advanced-control";
   button.id = "effort-open";
   button.textContent = "记录本次复核（仅本地）";
   const summary = document.createElement("p");

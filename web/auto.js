@@ -30,6 +30,36 @@ import { installReviewEffort } from "./modules/review-effort-ui.js";
 import { ViewerZoom } from "./modules/viewer-zoom.js";
 const $ = (id) => document.getElementById(id);
 const store = new BrowserReviewStore();
+let moreTools = false;
+try {
+  moreTools = sessionStorage.getItem("photo-culler-more-tools") === "true";
+} catch {}
+function renderTools() {
+  document.body.dataset.tools = moreTools ? "advanced" : "simple";
+  $("tools-toggle").textContent = moreTools ? "收起更多工具" : "更多工具";
+  $("tools-toggle").setAttribute("aria-expanded", String(moreTools));
+  if ($("accept") && !$("accept").disabled)
+    $("accept").textContent = moreTools
+      ? "接受整批推荐"
+      : "下一步：导出推荐照片";
+}
+$("tools-toggle").onclick = () => {
+  moreTools = !moreTools;
+  try {
+    sessionStorage.setItem("photo-culler-more-tools", String(moreTools));
+  } catch {}
+  renderTools();
+  if (
+    !moreTools &&
+    ["technical-review", "favorite", "burst"].includes($("filter").value)
+  )
+    $("filter").value = "shortlist";
+  if (root) {
+    render();
+    renderPlan();
+  }
+};
+renderTools();
 let effortController = null;
 let root = null,
   session = null,
@@ -415,11 +445,14 @@ function render() {
     ["unprocessed", "未能分析"],
   ]) {
     const div = document.createElement("div");
+    if (key === "unprocessed") div.className = "advanced-control";
     const strong = document.createElement("strong");
     strong.textContent = stats[key];
     div.append(strong, label);
     $("stats").append(div);
   }
+  $("simple-result-guide").textContent =
+    `推荐 ${stats.include} 组，可直接下一步导出。待复核 ${stats.protected} 组暂不选入，导出时可勾选附带；所有原件始终保留。点击照片可放大、改选。`;
   const filter = $("filter").value;
   const visible = groups.filter(
     (g) =>
@@ -442,6 +475,7 @@ function render() {
     const card = document.createElement("article");
     card.className = "card";
     const box = document.createElement("input");
+    box.className = "advanced-control";
     box.type = "checkbox";
     box.checked = chosen.has(g.id);
     box.setAttribute("aria-label", "比较 " + g.path);
@@ -471,6 +505,15 @@ function render() {
     card.append(name);
     const detail = document.createElement("p");
     const m = recommendations[g.id];
+    detail.className = "recommendation-detail advanced-control";
+    const status = document.createElement("p");
+    status.className = "simple-card-status";
+    status.textContent = {
+      include: "建议保留",
+      protected: "待复核 · 尚未选入导出",
+      suppress: "暂不导出 · 原件保留",
+    }[state(g)];
+    card.append(status);
     detail.textContent =
       { include: "建议保留", protected: "待复核 / 保护", suppress: "暂不导出" }[
         state(g)
@@ -520,6 +563,8 @@ function render() {
       ),
       button("恢复机器建议", () => void decide(g, "unreviewed")),
     );
+    const actions = [...card.querySelectorAll("button")];
+    for (const i of [0, 1, 4, 5]) actions[i].classList.add("advanced-control");
     $("grid").append(card);
     effortController?.observeGrid(card, g.id);
   }
@@ -541,8 +586,10 @@ for (const space of ["results", "export"]) {
 }
 const exportAccept = document.createElement("button");
 exportAccept.textContent = "接受当前输出计划";
+
 exportAccept.onclick = acceptCurrentPlan;
 const exportUndo = document.createElement("button");
+exportUndo.className = "advanced-control";
 exportUndo.textContent = "取消本批采纳";
 exportUndo.onclick = undoAcceptance;
 $("copy").before(exportAccept, exportUndo);
@@ -590,21 +637,30 @@ function renderPlan() {
           accepted.plan.fileCount +
           " 个文件。已保存本次输出计划；文件复制需独立确认。"
         : "尚未采纳：以下为推荐预览。接受后生成已确认输出计划；修改决定或设置后需重新采纳。";
-  $("accept").disabled = busy || !groups.length || confirmed;
-  $("accept").textContent = confirmed ? "已接受整批推荐" : "接受整批推荐";
+  $("accept").disabled = busy || !groups.length || (confirmed && moreTools);
+  $("accept").textContent = confirmed
+    ? moreTools
+      ? "已接受整批推荐"
+      : "继续：选择保存位置"
+    : moreTools
+      ? "接受整批推荐"
+      : "下一步：导出推荐照片";
   $("undo-accept").disabled = busy || !accepted;
   exportAccept.disabled = busy || !groups.length || confirmed;
+  exportAccept.hidden = !moreTools && confirmed;
+  exportAccept.textContent = moreTools ? "接受当前输出计划" : "确认当前选择";
   exportUndo.disabled = busy || !accepted;
   if (!plan) return;
-  $("plan").textContent =
-    plan.groupCount +
-    " 照片组 / " +
-    plan.fileCount +
-    " 个原始文件 / " +
-    (plan.bytes / 1024 / 1024).toFixed(1) +
-    " MB。目标内保留 Keepers/<源相对路径>。未分析及待复核 " +
-    plan.unprocessed.length +
-    " 组。";
+  $("plan").textContent = moreTools
+    ? plan.groupCount +
+      " 照片组 / " +
+      plan.fileCount +
+      " 个原始文件 / " +
+      (plan.bytes / 1024 / 1024).toFixed(1) +
+      " MB。目标内保留 Keepers/<源相对路径>。未分析及待复核 " +
+      plan.unprocessed.length +
+      " 组。"
+    : `将复制 ${plan.groupCount} 组照片，共 ${plan.fileCount} 个文件（${(plan.bytes / 1024 / 1024).toFixed(1)} MB）。${plan.includeProtected ? "已包含待复核文件。" : "待复核文件暂不复制。"}`;
   $("unprocessed").textContent = JSON.stringify(
     {
       protected: plan.unprocessed,
@@ -756,9 +812,8 @@ $("zoom-one").onclick = async () => {
   let budget = 128 * 1024 * 1024;
   for (const item of zooms) {
     try {
-      const { imageDimensions, orientedDimensions } = await import(
-        "./modules/image-dimensions.js"
-      );
+      const { imageDimensions, orientedDimensions } =
+        await import("./modules/image-dimensions.js");
       const metadata = await imageDimensions(item.file);
       const dimensions = metadata ? orientedDimensions(metadata) : null;
       if (!dimensions || dimensions.width * dimensions.height * 4 > budget) {
@@ -956,7 +1011,13 @@ async function undoAcceptance() {
     message("取消采纳保存失败：" + error.message);
   }
 }
-$("accept").onclick = acceptCurrentPlan;
+$("accept").onclick = () => {
+  if (accepted && !moreTools && !busy) {
+    show("export");
+    return;
+  }
+  return acceptCurrentPlan();
+};
 $("undo-accept").onclick = undoAcceptance;
 $("compare-two").onclick = () => {
   const selected = groups.filter((g) => chosen.has(g.id) && g.source);
