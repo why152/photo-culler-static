@@ -16,9 +16,23 @@ export class ReviewDecisionHistory {
   undo(decisions) {
     const change = this.changes.pop();
     if (!change) return false;
+    if (change.batch) {
+      for (const item of change.batch) {
+        if (item.previous === null) delete decisions[item.photoGroupId];
+        else decisions[item.photoGroupId] = item.previous;
+      }
+      return true;
+    }
     if (change.previous === null) delete decisions[change.photoGroupId];
     else decisions[change.photoGroupId] = change.previous;
     return true;
+  }
+
+  recordBatch(decisions, entries) {
+    this.changes.push({ batch: entries.map(([photoGroupId]) => ({
+      photoGroupId, previous: decisions[photoGroupId] ?? null,
+    })) });
+    for (const [id, decision] of entries) decisions[id] = decision;
   }
 }
 

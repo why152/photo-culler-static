@@ -147,6 +147,10 @@
         </p>
         <div id="review-toolbar">
           <p id="gallery-summary" tabindex="-1"></p>
+          <label class="recommendation-quantity">少选
+            <input id="recommendation-quantity" aria-label="自动推荐数量" type="range" min="1" max="3" step="1" value="1" />
+            多选 <output id="quantity-label" for="recommendation-quantity">精简</output>
+          </label>
           <div id="stats" class="stats"></div>
           <div class="toolbar">
             <button id="accept">接受整批推荐</button
@@ -269,6 +273,8 @@
         <button id="viewer-exclude" class="advanced-control">暂不导出</button>
         <button id="viewer-next">下一张 →</button>
         <span id="viewer-decision" role="status"></span>
+        <p id="viewer-shortcuts">1 精选 · 2 保留 · X 不选 · 选后下一张 · U 撤销</p>
+        <span id="viewer-feedback" role="status"></span>
       </div>
     </dialog>
     <dialog id="confirm">

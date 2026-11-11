@@ -2,6 +2,7 @@ import { orbAgreement } from "./orb-match.js";
 import { usablePortrait } from "./portrait-evidence.js";
 import { createSHA256 } from "hash-wasm";
 import { checkAbort } from "./cull-inventory.js";
+import { SCENE_VERSION } from "./scene-evidence-version.js";
 export async function digest(file, signal) {
   const hash = await createSHA256();
   hash.init();
@@ -193,6 +194,26 @@ export function scenePair(a, b) {
     }),
   );
 }
+// Broad review stacks are independent of face detection. Every pair must match
+// the scene; no transitive chaining, missing times, or aspect/camera jumps.
+export function reviewScenePair(a, b) {
+  const x = a.analysis?.scene, y = b.analysis?.scene;
+  const ad = a.analysis?.sourceDimensions, bd = b.analysis?.sourceDimensions;
+  return Boolean(
+    !a.protected && !b.protected && !a.manualSplit && !b.manualSplit &&
+    x?.version === SCENE_VERSION && y?.version === SCENE_VERSION &&
+    x.status === "ready" && y.status === "ready" &&
+    Number.isFinite(a.metadata?.capturedAt) && Number.isFinite(b.metadata?.capturedAt) &&
+    Math.abs(a.metadata.capturedAt - b.metadata.capturedAt) <= 30000 &&
+    ad?.width > 0 && bd?.width > 0 && ad.height > 0 && bd.height > 0 &&
+    Math.abs(ad.width / ad.height - bd.width / bd.height) <= 0.08 &&
+    // Small subjects/handheld reframing reduce ORB agreement even in real
+    // subsecond sequences. Broaden only review stacks, with a strict cadence.
+    ((Math.abs(a.metadata.capturedAt - b.metadata.capturedAt) <= 2500 &&
+      distance(a.hash, b.hash) <= 32 && orbAgreement(x.orb, y.orb) >= 0.18) ||
+     (distance(a.hash, b.hash) <= 24 && orbAgreement(x.orb, y.orb) >= 0.3))
+  );
+}
 export function cluster(groups, { portrait = false } = {}) {
   const result = [];
   const sorted = [...groups].sort(
@@ -202,29 +223,17 @@ export function cluster(groups, { portrait = false } = {}) {
   );
   for (const group of sorted) {
     const time = group.metadata?.capturedAt;
-    const match =
-      !group.protected &&
-      !group.manualSplit &&
-      group.hash &&
-      result.findLast(
-        (batch) =>
-          batch.length < 30 &&
-          batch.every(
-            (other) =>
-              !other.protected &&
-              !other.manualSplit &&
-              ((group.exact && group.exact === other.exact) ||
-                versionCandidate(group, other) ||
-                (time != null &&
-                  other.metadata?.capturedAt != null &&
-                  ((Math.abs(time - other.metadata.capturedAt) <= 2500 &&
-                    distance(group.hash, other.hash) <= 6) ||
-                    (portrait &&
-                      Math.abs(time - other.metadata.capturedAt) <= 12000 &&
-                      (portraitPair(group, other) ||
-                        scenePair(group, other)))))),
-          ),
-      );
+    const compatible = (other) => {
+      if (other.protected || other.manualSplit) return false;
+      if ((group.exact && group.exact === other.exact) || versionCandidate(group, other)) return true;
+      if (!Number.isFinite(time) || !Number.isFinite(other.metadata?.capturedAt)) return false;
+      const elapsed = Math.abs(time - other.metadata.capturedAt);
+      return (elapsed <= 2500 && distance(group.hash, other.hash) <= 6) ||
+        (portrait && elapsed <= 12000 && (portraitPair(group, other) || scenePair(group, other))) ||
+        (portrait && reviewScenePair(group, other));
+    };
+    const match = !group.protected && !group.manualSplit && group.hash &&
+      result.findLast(batch => batch.length < 30 && batch.every(compatible));
     if (match) match.push(group);
     else result.push([group]);
   }

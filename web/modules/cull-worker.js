@@ -4,10 +4,15 @@ import { digest } from "./cull-similarity.js";
 import { captureMetadata } from "./cull-inventory.js";
 import { summarizeFaces, PORTRAIT_VERSION } from "./portrait-evidence.js";
 import { analyzeCanvasFocus, classifyFocus } from "./upstream-focus.js";
+import { sceneEvidence } from "./scene-evidence.js";
 self.onmessage = async ({ data }) => {
   if (data.protocol !== "cull-v2") return;
   const { id, file } = data;
   try {
+    if (data.sceneOnly) {
+      self.postMessage({ id, scene: await sceneEvidence(file) });
+      return;
+    }
     const metadata = await captureMetadata(file);
     let portraitInput = null;
     const analysis = await analyzeFile(file, undefined, undefined, (canvas) => {
@@ -91,6 +96,7 @@ self.onmessage = async ({ data }) => {
         };
       }
     }
+    analysis.scene = await sceneEvidence(analysis.thumbnail);
     let hash = null;
     if (analysis.thumbnail) {
       const bitmap = await createImageBitmap(analysis.thumbnail);
