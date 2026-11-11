@@ -3,7 +3,7 @@ import {
   portraitQuality,
   usablePortrait,
 } from "./portrait-evidence.js";
-import { cluster, similarityKind, portraitPair } from "./cull-similarity.js";
+import { cluster, similarityKind, portraitPair, scenePair } from "./cull-similarity.js";
 import { distance } from "./cull-similarity.js";
 import { ALGORITHM_VERSION } from "./cull-session.js";
 import { lowKeyEvidence } from "./cull-exposure.js";
@@ -34,11 +34,15 @@ export function rank(
       mode === "burst" &&
       batch.length > 1 &&
       batch.every(usablePortrait);
-    const ambiguousPortrait =
+    const broadScene = batch.some((g, i) => batch.slice(i + 1).some(other =>
+      !(g.exact && g.exact === other.exact) &&
+      !((Math.abs(g.metadata?.capturedAt - other.metadata?.capturedAt) <= 2500 && distance(g.hash, other.hash) <= 6) ||
+        (Math.abs(g.metadata?.capturedAt - other.metadata?.capturedAt) <= 12000 && (portraitPair(g, other) || scenePair(g, other))))));
+    const ambiguousPortrait = broadScene || (
       hasPortrait &&
       !batch.every((g, i) =>
         batch.slice(i + 1).every((other) => portraitPair(g, other)),
-      );
+      ));
     const portraitBatch = hasPortrait && !ambiguousPortrait;
     const faceScale = portraitBatch
       ? Math.max(1e-6, ...batch.map((g) => portraitQuality(g).sharpness))

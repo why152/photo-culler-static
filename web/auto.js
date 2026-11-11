@@ -1,4 +1,5 @@
 import { PORTRAIT_VERSION } from "./modules/portrait-evidence.js";
+import { SCENE_VERSION } from "./modules/scene-evidence-version.js";
 import { galleryRows } from "./modules/cull-gallery.js";
 import { BrowserReviewStore } from "./modules/browser-store.js";
 import { inventory, checkAbort } from "./modules/cull-inventory.js";
@@ -37,6 +38,7 @@ const store = new BrowserReviewStore();
 let portraitScope = null;
 const expandedBatches = new Set();
 const pendingDecisions = new Set();
+let rangeAnchor = null, rangePending = false, shortcutPending = false;
 // Portrait evidence is automatic. The hidden control preserves existing module contracts.
 $("portrait").checked = true;
 $("filter").value = "all";
@@ -137,6 +139,7 @@ function setBusy(value) {
   $("strength").disabled = value;
   $("portrait").disabled = value;
   $("portrait-keep").disabled = value;
+  $("recommendation-quantity").disabled = value;
   updateSelectionControls();
   $("output-layout").disabled = value;
   $("include-protected").disabled = value;
@@ -226,7 +229,7 @@ async function permission(directory) {
   )
     throw new Error("读取权限被拒绝；请重新选择源目录。");
 }
-function runWorker(group, signal) {
+function runWorker(group, signal, thumbnail = null) {
   return new Promise((resolve, reject) => {
     const abort = () => {
       worker?.terminate();
@@ -245,8 +248,7 @@ function runWorker(group, signal) {
       clean();
       reject(new Error(e.message || "Worker 无法运行"));
     };
-    group.source.handle
-      .getFile()
+    (thumbnail ? Promise.resolve(thumbnail) : group.source.handle.getFile())
       .then((file) => {
         checkAbort(signal);
         worker.postMessage({
@@ -254,6 +256,7 @@ function runWorker(group, signal) {
           id: group.id,
           file,
           portrait: $("portrait").checked,
+          sceneOnly: Boolean(thumbnail),
         });
       })
       .catch((e) => {
@@ -289,6 +292,7 @@ async function open(directory) {
     portraitScope = null;
     expandedBatches.clear();
     decisionHistory = new ReviewDecisionHistory();
+    rangeAnchor = null;
     accepted = null;
     session = await store.session(root);
     human = { ...session.human };
@@ -306,6 +310,7 @@ async function open(directory) {
       $("mode").value,
       session.preferences?.strength,
     );
+    syncQuantity();
     release();
     groups = [];
     recommendations = {};
@@ -324,15 +329,14 @@ async function open(directory) {
       type: "module",
     });
     let cache = null,
-      previousCache = null;
+      previousCaches = [];
     try {
       cache = await store.analysisScope(root, {
         algorithmVersion: ALGORITHM_VERSION,
       });
-      // beta.6 changes ranking/presentation only; reuse verified beta.5 pixels.
-      previousCache = await store.analysisScope(root, {
-        algorithmVersion: "rules-2.0-beta.5",
-      });
+      // Reuse verified face/pixel evidence; add scene descriptors without models.
+      for (const algorithmVersion of ["rules-2.0-beta.6", "rules-2.0-beta.5"])
+        previousCaches.push(await store.analysisScope(root, { algorithmVersion }));
     } catch {
       message("分析缓存不可用，继续本地重新计算。");
     }
@@ -365,9 +369,9 @@ async function open(directory) {
           });
           let cached = null;
           try {
-            cached =
-              (await cache?.loadAnalysis(key)) ??
-              (await previousCache?.loadAnalysis(key));
+            cached = await cache?.loadAnalysis(key);
+            for (const previousCache of previousCaches)
+              if (!cached) cached = await previousCache.loadAnalysis(key);
           } catch {
             /* Cache never blocks analysis. */
           }
@@ -377,7 +381,17 @@ async function open(directory) {
             (!$("portrait").checked ||
               (cached.analysis?.portrait?.status === "ready" &&
                 cached.analysis?.portrait?.version === PORTRAIT_VERSION));
-          if (verified) Object.assign(group, cached);
+          if (verified) {
+            Object.assign(group, cached);
+            if (group.analysis?.thumbnail && group.analysis.scene?.version !== SCENE_VERSION) {
+              const result = await runWorker(group, signal, group.analysis.thumbnail);
+              group.analysis.scene = result.scene;
+            }
+            try { await cache?.saveAnalysis(key, {
+              analysis: group.analysis, hash: group.hash, metadata: group.metadata,
+              sourceSHA: group.sourceSHA, fingerprint: group.fingerprint,
+            }); } catch { /* Advisory cache. */ }
+          }
           else {
             const result = await runWorker(group, signal);
             Object.assign(group, result);
@@ -459,15 +473,31 @@ function recompute(persist = true) {
   render();
   if (root && persist) void save();
 }
+function syncQuantity() {
+  const value = { compact: 1, standard: 2, loose: 3 }[$("strength").value] ?? 1;
+  $("recommendation-quantity").value = String(value);
+  $("quantity-label").textContent = ["", "精简", "适中", "宽松"][value];
+}
+$("recommendation-quantity").oninput = async () => {
+  if (busy) return;
+  await effortController?.pauseForContextChange();
+  const value = Number($("recommendation-quantity").value);
+  $("strength").value = ["", "compact", "standard", "loose"][value];
+  $("portrait-keep").value = String(value);
+  syncQuantity();
+  recompute();
+};
 function state(group) {
   return outputDecision(human[group.id], recommendations[group.id]);
 }
 async function decide(group, decision, favorite = false) {
-  if (busy || pendingDecisions.has(group)) return;
+  if (busy || rangePending || pendingDecisions.has(group)) return;
   pendingDecisions.add(group);
   updateSelectionControls();
   const decisionSession = session?.id;
   const decisionContext = groups;
+  const previousDecision = human[group.id];
+  let recordedChange = null, appliedDecision = null;
   try {
     const sourceSHA = group.source
       ? await digest(await group.source.handle.getFile())
@@ -481,13 +511,66 @@ async function decide(group, decision, favorite = false) {
       sourceSHA,
     };
     decisionHistory.record(human, group.id, nextDecision);
+    recordedChange = decisionHistory.changes.at(-1);
+    appliedDecision = nextDecision;
     await save();
     effortController?.decision(group.id);
     render();
+    return true;
   } catch (e) {
+    if (groups === decisionContext && appliedDecision && human[group.id] === appliedDecision) {
+      if (previousDecision === undefined) delete human[group.id];
+      else human[group.id] = previousDecision;
+      const index = decisionHistory.changes.indexOf(recordedChange);
+      if (index >= 0) decisionHistory.changes.splice(index, 1);
+      render();
+    }
     message("无法保存决定：" + e.message);
+    return false;
   } finally {
     pendingDecisions.delete(group);
+    updateSelectionControls();
+  }
+}
+async function selectThumbnail(group, event) {
+  if (busy || rangePending || pendingDecisions.size) return;
+  const rows = reviewSnapshot?.rows ?? [];
+  const start = rows.findIndex(row => row.group.id === rangeAnchor);
+  const end = rows.findIndex(row => row.group === group);
+  if (!event.shiftKey || start < 0 || end < 0) {
+    rangeAnchor = group.id;
+    await togglePhoto(group);
+    return;
+  }
+  const selected = state(group) !== "include";
+  const targets = rows.slice(Math.min(start, end), Math.max(start, end) + 1).map(row => row.group);
+  const context = groups, sessionId = session?.id;
+  rangePending = true;
+  for (const g of targets) pendingDecisions.add(g);
+  updateSelectionControls();
+  let recorded = false;
+  try {
+    const entries = [];
+    for (const g of targets) {
+      const sourceSHA = g.source ? await digest(await g.source.handle.getFile()) : null;
+      entries.push([g.id, { decision: selected ? "keep" : "exclude", favorite: selected && Boolean(human[g.id]?.favorite), fingerprint: g.fingerprint, sourceSHA }]);
+    }
+    if (groups !== context || session?.id !== sessionId || busy) return;
+    decisionHistory.recordBatch(human, entries);
+    recorded = true;
+    await save();
+    for (const g of targets) effortController?.decision(g.id);
+    render();
+    message(`${selected ? "已选" : "已取消选择"} ${targets.length} 张 · U 撤销`);
+  } catch (e) {
+    if (recorded && groups === context) {
+      decisionHistory.undo(human);
+      render();
+    }
+    message("无法保存连续选择：" + e.message);
+  } finally {
+    for (const g of targets) pendingDecisions.delete(g);
+    rangePending = false;
     updateSelectionControls();
   }
 }
@@ -516,7 +599,7 @@ function setSelectionControl(control, group) {
     "aria-label",
     `${selected ? "取消选择" : "选择"} ${group.path}`,
   );
-  control.title = selected ? "取消选择" : "选择";
+  control.title = `${selected ? "取消选择" : "选择"} · Shift 连选`;
   control.disabled = busy || pendingDecisions.has(group);
   control.setAttribute("aria-busy", String(pendingDecisions.has(group)));
   const label = control.querySelector(".selection-label");
@@ -771,18 +854,18 @@ function render(options = {}) {
         card.dataset.batchKey = row.key;
         card.dataset.batchExpanded = String(row.expanded);
       }
-      if (row.toggle && !row.expanded) card.classList.add("photo-stack");
+      if (row.batch && !row.expanded) card.classList.add("photo-stack");
       if (g.analysis?.thumbnail) {
         const img = document.createElement("img");
         img.src = gridPreviews.urlFor(g.id, g.analysis.thumbnail);
         img.alt = g.path;
         const openPhoto = () =>
-          row.toggle && !row.expanded ? toggleBatch(row) : void compare([g]);
+          row.batch && !row.expanded ? toggleBatch(row) : void compare([g]);
         img.onclick = openPhoto;
         img.setAttribute("role", "button");
         img.setAttribute(
           "aria-label",
-          row.toggle && !row.expanded
+          row.batch && !row.expanded
             ? `查看这组 ${row.batch.length} 张`
             : `查看 ${g.path}`,
         );
@@ -808,7 +891,7 @@ function render(options = {}) {
             : "无法预览";
         media.append(placeholder);
       }
-      const selection = button("", () => void togglePhoto(g));
+      const selection = button("", event => void selectThumbnail(g, event));
       selection.className = "photo-select simple-control";
       selection.append(selectionIcon());
       setSelectionControl(selection, g);
@@ -903,9 +986,9 @@ function render(options = {}) {
       // The overlay toggle is separate from advanced review/compare controls.
       for (const action of actions)
         if (action !== selection) action.classList.add("advanced-control");
-      if (row.toggle) {
+      if (row.toggle || (row.batch && !row.expanded)) {
         const toggle = button(
-          row.expanded ? "收起" : `${row.batch.length} 张`,
+          row.expanded ? "收起" : `共 ${row.batch.length} 张 · 已选 ${row.batch.filter(x => state(x) === "include").length}`,
           () => toggleBatch(row),
         );
         toggle.className = "batch-toggle";
@@ -1199,6 +1282,7 @@ function applyZoom() {
   }
 }
 async function compare(list) {
+  $("viewer-feedback").textContent = "";
   releaseComparison();
   $("zoom-one").disabled = true;
   const generation = ++compareGeneration;
@@ -1418,7 +1502,7 @@ if (help) {
   help.id = "shortcut-help";
   const keys = document.createElement("p");
   keys.textContent =
-    "快捷键：? 帮助；单图中 J/K 或方向键浏览，1 精选，2 保留，X 暂不导出，3 稍后复核，U 撤销，F 全屏，Esc 关闭。输入框中不触发快捷键。";
+    "快捷键：? 帮助；单图中 J/K 或方向键浏览，1 精选，2 保留，X 不选，3 稍后复核；保存后自动下一张。U 撤销，F 全屏，Esc 关闭。缩略图 Shift 点击勾选连续范围。输入框中不触发快捷键。";
   help.append(keys);
   const comparisonHelp = document.createElement("p");
   comparisonHelp.id = "compare-shortcuts";
@@ -1445,17 +1529,15 @@ document.addEventListener("keydown", (e) => {
     }
     return;
   }
+  if (e.key.toLowerCase() === "u") {
+    e.preventDefault();
+    if (busy || pendingDecisions.size) return;
+    if (decisionHistory.undo(human)) { void save(); render(); }
+    return;
+  }
   if (!$("compare").open || busy) return;
   const key = e.key.toLowerCase(),
     g = compared[0];
-  if (key === "u") {
-    e.preventDefault();
-    if (decisionHistory.undo(human)) {
-      void save();
-      render();
-    }
-    return;
-  }
   if (key === "f") {
     e.preventDefault();
     if (viewerFullscreen && document.fullscreenElement)
@@ -1471,11 +1553,18 @@ document.addEventListener("keydown", (e) => {
   }
   if (compared.length === 1 && g && ["1", "2", "x", "3"].includes(key)) {
     e.preventDefault();
-    void decide(
-      g,
-      key === "x" ? "exclude" : key === "3" ? "review_later" : "keep",
-      key === "1",
-    );
+    if (e.repeat || shortcutPending || pendingDecisions.size) return;
+    const context = groups;
+    const next = viewerOrder[viewerOrder.indexOf(g) + 1];
+    shortcutPending = true;
+    void (async () => {
+      try {
+        const saved = await decide(g, key === "x" ? "exclude" : key === "3" ? "review_later" : "keep", key === "1");
+        if (!saved || groups !== context || !$("compare").open || compared[0] !== g) return;
+        if (next) await compare([next]);
+        $("viewer-feedback").textContent = `${key === "x" ? "已不选" : key === "3" ? "已留待复核" : key === "1" ? "已精选" : "已保留"}${next ? " · 下一张" : " · 已到最后一张"}`;
+      } finally { shortcutPending = false; }
+    })();
     return;
   }
   if (
@@ -1512,6 +1601,8 @@ $("choose").onclick = () => {
     });
 };
 $("strength").onchange = async () => {
+  syncQuantity();
+  $("portrait-keep").value = $("recommendation-quantity").value;
   await effortController?.pauseForContextChange();
   if (!busy) recompute();
 };

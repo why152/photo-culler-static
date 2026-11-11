@@ -814,3 +814,18 @@ body[data-tools="simple"] #review-toolbar {
 body[data-tools="simple"] #review-toolbar .toolbar {
   margin-bottom: 0;
 }
+
+.recommendation-quantity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 8px 0 14px;
+  color: #a1a1aa;
+  font-size: 13px;
+}
+.recommendation-quantity input { width: 120px; accent-color: #0a84ff; min-height: 28px; }
+.recommendation-quantity output { min-width: 2em; color: #e5e5ea; }
+#viewer-shortcuts { flex-basis: 100%; margin: 2px 0; color: #a1a1aa; font-size: 13px; text-align: center; }
+#viewer-feedback { color: #a1a1aa; font-size: 13px; }

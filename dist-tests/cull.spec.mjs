@@ -585,6 +585,7 @@ for (const priorAlgorithm of [
   "rules-2.0-beta.3",
   "rules-2.0-beta.4",
   "rules-2.0-beta.5",
+  "rules-2.0-beta.6",
 ])
   test(`${priorAlgorithm} accepted plan requires reacceptance after upgrade while favorite survives`, async ({
     page,
@@ -1765,7 +1766,11 @@ test("2000-photo continuous review reuses verified beta.5 evidence, scrolls both
       const cache = tx.objectStore("analysis");
       for (const f of files) {
         const fingerprint = JSON.stringify([[f.name, f.size, f.mtime]]);
-        const analysis = { ...template.analysis, fingerprint };
+        const analysis = { ...template.analysis, fingerprint,
+          analysis: { ...template.analysis.analysis } };
+        // Old no-face caches have no scene descriptors; supplement just pixels,
+        // while the blocked model route proves no face inference is repeated.
+        if (f.name === "Huge0000.jpg") delete analysis.analysis.scene;
         const record = {
           ...template,
           algorithmVersion: "rules-2.0-beta.5",
@@ -1874,6 +1879,20 @@ test("2000-photo continuous review reuses verified beta.5 evidence, scrolls both
   await expect(last).toHaveAttribute("data-decision", "suppress");
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(page.locator('.card[data-group-id="group:A"]')).toBeVisible();
+  await page.locator('.card[data-group-id="group:A"] .photo-select').click();
+  await expect(page.locator('.card[data-group-id="group:A"]')).toHaveAttribute("data-origin", "manual");
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await expect(last).toBeVisible();
+  await last.locator(".photo-select").click({ modifiers: ["Shift"] });
+  await expect(last).toHaveAttribute("data-decision", "include", { timeout: 30000 });
+  await expect(last.locator(".photo-select")).toBeEnabled();
+  const ranged = await readStudySession(page);
+  expect(ranged.human["group:Huge1000"].decision).toBe("keep");
+  expect(ranged.human["group:B"]?.decision).not.toBe("keep");
+  expect(await page.locator(".card").count()).toBeLessThanOrEqual(120);
+  await page.keyboard.press("u");
+  await expect(last).toHaveAttribute("data-decision", "suppress");
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.locator("#tools-toggle").click();
   await page.locator("#filter").selectOption("favorite");
   await expect(page.locator(".card")).toHaveCount(0);
@@ -1893,4 +1912,78 @@ test("2000-photo continuous review reuses verified beta.5 evidence, scrolls both
   const saved = await readStudySession(page);
   expect(saved.acceptedPlan.plan.groupCount).toBe(2000);
   expect(saved.acceptedPlan.plan.fileCount).toBe(2002);
+});
+
+test("quantity preserves manual choices, keyboard saves then advances, Shift range selects and undoes", async ({ page }) => {
+  await page.goto("./");
+  await fixture(page, { legacy: false });
+  // Independent thumbnail items make both directions of the range observable.
+  await page.evaluate(async () => {
+    for (let i = 0; i < 8; i++) {
+      const h = await window.__source.getFileHandle(`Range${i}.jpg`, { create: true });
+      const w = await h.createWritable(); await w.write(window.__blob); await w.close();
+    }
+
+  });
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  // Split via the real controls so initial fixture/session creation stays public.
+  await page.locator("#tools-toggle").click();
+  for (let i = 0; i < 8; i++) {
+    const card=page.locator(`.card[data-group-id="group:Range${i}"]`);
+    if (!(await card.count())) {
+      const toggles=page.locator(".batch-toggle[aria-expanded=false]");
+      if(await toggles.count()) await toggles.first().click();
+    }
+    await card.getByRole("button",{name:"拆出连拍",exact:true}).click();
+  }
+  await page.locator("#tools-toggle").click();
+  const card = i => page.locator(`.card[data-group-id="group:Range${i}"]`);
+  await card(1).locator(".photo-select").click();
+  await expect(card(1)).toHaveAttribute("data-origin","manual");
+  const selected=await card(1).locator(".photo-select").getAttribute("aria-pressed");
+  await page.locator("#recommendation-quantity").fill("3");
+  await expect(page.locator("#quantity-label")).toHaveText("宽松");
+  await expect(card(1).locator(".photo-select")).toHaveAttribute("aria-pressed",selected);
+  await expect(card(1)).toHaveAttribute("data-origin","manual");
+  await page.locator("#recommendation-quantity").fill("1");
+  // All independent duplicates start selected; clicking the endpoint excludes the
+  // whole range, including the already-excluded anchor, then U restores it once.
+  await card(5).locator(".photo-select").click({modifiers:["Shift"]});
+  for(let i=1;i<=5;i++) await expect(card(i).locator(".photo-select")).toHaveAttribute("aria-pressed","false");
+  await page.keyboard.press("u");
+  await expect(card(2).locator(".photo-select")).toHaveAttribute("aria-pressed","true");
+  await expect(card(1).locator(".photo-select")).toHaveAttribute("aria-pressed",selected);
+  await card(5).locator(".photo-select").click();
+  await card(2).locator(".photo-select").click({modifiers:["Shift"]});
+  for(let i=2;i<=5;i++) await expect(card(i).locator(".photo-select")).toHaveAttribute("aria-pressed","false");
+  await card(0).getByRole("button",{name:"查看 Range0",exact:true}).click();
+  await expect(page.locator("#viewer-shortcuts")).toContainText("1 精选");
+  await page.keyboard.press("2");
+  await expect(page.locator("#viewer-select")).toHaveAttribute("data-photo-select","group:Range1");
+  await expect(page.locator("#viewer-feedback")).toHaveText("已保留 · 下一张");
+  await expect(card(0)).toHaveAttribute("data-origin","manual");
+  await page.keyboard.press("x");
+  await expect(page.locator("#viewer-select")).toHaveAttribute("data-photo-select","group:Range2");
+  await expect(page.locator("#viewer-feedback")).toHaveText("已不选 · 下一张");
+  await expect(card(1).locator(".photo-select")).toHaveAttribute("aria-pressed","false");
+  await page.keyboard.press("1");
+  await expect(page.locator("#viewer-select")).toHaveAttribute("data-photo-select","group:Range3");
+  await page.keyboard.press("Escape");
+  await page.reload();await page.locator("#sessions button").first().click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await expect(card(1).locator(".photo-select")).toHaveAttribute("aria-pressed","false");
+  await expect(card(2).locator(".photo-select")).toHaveAttribute("aria-pressed","true");
+  await card(6).getByRole("button",{name:"查看 Range6",exact:true}).click();
+  await page.evaluate(() => {
+    const put=IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put=function(...args) {
+      if(this.name==="cull-sessions") throw new DOMException("Test storage failure","QuotaExceededError");
+      return put.apply(this,args);
+    };
+  });
+  await page.keyboard.press("x");
+  await expect(page.locator("#feedback")).toContainText("无法保存决定");
+  await expect(page.locator("#viewer-select")).toHaveAttribute("data-photo-select","group:Range6");
+  await expect(page.locator("#viewer-select")).toHaveAttribute("aria-pressed","true");
 });
