@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "license": "Apache-2.0",
+  "inference": "TensorFlow.js 4.22.0 WASM only; MediaPipe SDK excluded",
+  "models": {
+    "detector": {
+      "source": "https://www.kaggle.com/models/mediapipe/face-detection/tfJs/full/1",
+      "license": "Apache 2.0"
+    },
+    "mesh": {
+      "source": "https://www.kaggle.com/models/mediapipe/face-landmarks-detection/tfJs/face-mesh/1",
+      "license": "Apache 2.0"
+    }
+  },
+  "files": [
+    {
+      "path": "detector/group1-shard1of1.bin",
+      "bytes": 1026192,
+      "sha256": "5c3f885a2fd36cb36a6e8bf96a902d9702d486dc76454536e7c15ba73c4e5b42"
+    },
+    {
+      "path": "detector/model.json",
+      "bytes": 196835,
+      "sha256": "23efcb74f315004e28ae19c19f08cb2cc35837dd6b5f1f18462b54384bec5448"
+    },
+    {
+      "path": "mesh/group1-shard1of1.bin",
+      "bytes": 1477958,
+      "sha256": "3826da640b0a3021161605369ee6af293f75d518040355b960ec71a3390c1c0b"
+    },
+    {
+      "path": "mesh/model.json",
+      "bytes": 100158,
+      "sha256": "074a5d7143977d5e08a049c46a743e5b924aad79e7e69c7079bc2e083def62e6"
+    },
+    {
+      "path": "wasm/tfjs-backend-wasm-simd.wasm",
+      "bytes": 424594,
+      "sha256": "77ebb28a6d34f371dbbf2086b7f2de8994acd8ea5a3cf1fa24d2c26c840cac7b"
+    },
+    {
+      "path": "wasm/tfjs-backend-wasm-threaded-simd.wasm",
+      "bytes": 435643,
+      "sha256": "c052228d4bef185c27bbe59a9e029570c78bbb9f08b3cb46b597851650373de2"
+    },
+    {
+      "path": "wasm/tfjs-backend-wasm.wasm",
+      "bytes": 311123,
+      "sha256": "70a5d516060464e5269f01c74bac1772d6b8ab6cb612acf16b5cdaf61f78d892"
+    }
+  ]
+}

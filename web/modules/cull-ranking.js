@@ -1,3 +1,8 @@
+import {
+  portraitPreference,
+  portraitQuality,
+  usablePortrait,
+} from "./portrait-evidence.js";
 import { cluster, similarityKind } from "./cull-similarity.js";
 import { distance } from "./cull-similarity.js";
 import { ALGORITHM_VERSION } from "./cull-session.js";
@@ -17,17 +22,28 @@ export function rank(
     mode = "burst",
     strategy = "local-focus",
     exposurePolicy = "contextual",
+    portrait = false,
+    portraitKeep = 1,
   } = {},
 ) {
-  const batches = cluster(groups),
+  const batches = cluster(groups, { portrait: portrait && mode === "burst" }),
     recommendations = {};
   for (const batch of batches) {
+    const portraitBatch =
+      portrait &&
+      mode === "burst" &&
+      batch.length > 1 &&
+      batch.every(usablePortrait);
+    const faceScale = portraitBatch
+      ? Math.max(1e-6, ...batch.map((g) => portraitQuality(g).sharpness))
+      : null;
     const ordered = [...batch].sort(
       (a, b) =>
         (strategy === "local-focus"
           ? Number(a.analysis?.focus?.isBlurry ?? false) -
             Number(b.analysis?.focus?.isBlurry ?? false)
           : 0) ||
+        (portraitBatch ? portraitPreference(a, b, faceScale) : 0) ||
         (strategy === "normalized" || strategy === "local-focus"
           ? (b.analysis?.focus?.normalizedSharpness ??
               b.analysis?.technicalScore ??
@@ -82,10 +98,19 @@ export function rank(
     for (const g of ordered) {
       // Album mode only folds exact duplicates. Missing times never infer bursts.
       const distinct = selected.every((s) => distance(s.hash, g.hash) > 3);
-      const k = strength === "loose" ? 3 : strength === "compact" ? 1 : 2;
+      const k = portraitBatch
+        ? Math.max(1, Math.min(3, Number(portraitKeep) || 2))
+        : strength === "loose"
+          ? 3
+          : strength === "compact"
+            ? 1
+            : 2;
       const include =
         !selected.length ||
-        (selected.length < k && distinct) ||
+        (selected.length < k &&
+          (portraitBatch
+            ? !selected.some((s) => g.exact && g.exact === s.exact)
+            : distinct)) ||
         (mode === "album" &&
           !selected.some((s) => g.exact && s.exact === g.exact));
       if (include && !frameProtected(g)) selected.push(g);
@@ -114,11 +139,14 @@ export function rank(
               : uncertain
                 ? "题材、特殊序列或读取存在不确定性，请复核"
                 : batch.length > 1
-                  ? strategy === "local-focus"
-                    ? "同组局部清晰区域与对比度归一化排序；不判断艺术价值"
-                    : "同组清晰度、曝光与视觉差异排序"
+                  ? portraitBatch
+                    ? "同场景人物连拍：优先脸部清晰、可靠的睁眼证据；侧脸/小脸不判断表情，其余原件保留"
+                    : strategy === "local-focus"
+                      ? "同组局部清晰区域与对比度归一化排序；不判断艺术价值"
+                      : "同组清晰度、曝光与视觉差异排序"
                   : "独立瞬间，保留候选",
         ],
+        ...(portraitBatch ? { portraitBatch: true, portraitKeep: k } : {}),
         algorithmVersion: ALGORITHM_VERSION,
       };
     }

@@ -324,3 +324,25 @@ body[data-tools="simple"] .card button {
 body[data-tools="advanced"] .simple-card-status {
   display: none;
 }
+
+[hidden] {
+  display: none !important;
+}
+.portrait-option {
+  margin: 18px 0;
+  padding: 10px 14px;
+  border: 1px solid #34363c;
+  border-radius: 10px;
+}
+.portrait-option p {
+  font-size: 13px;
+  margin: 4px 0;
+}
+.portrait-option label {
+  margin: 4px;
+  min-height: 44px;
+}
+.portrait-option input {
+  width: 20px;
+  height: 20px;
+}

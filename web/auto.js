@@ -1,3 +1,4 @@
+import { PORTRAIT_VERSION } from "./modules/portrait-evidence.js";
 import { BrowserReviewStore } from "./modules/browser-store.js";
 import { inventory, checkAbort } from "./modules/cull-inventory.js";
 import {
@@ -30,6 +31,8 @@ import { installReviewEffort } from "./modules/review-effort-ui.js";
 import { ViewerZoom } from "./modules/viewer-zoom.js";
 const $ = (id) => document.getElementById(id);
 const store = new BrowserReviewStore();
+let portraitPreferenceExplicit = false;
+let portraitScope = null;
 let moreTools = false;
 try {
   moreTools = sessionStorage.getItem("photo-culler-more-tools") === "true";
@@ -113,6 +116,8 @@ function setBusy(value) {
   $("accept").disabled = value;
   $("mode").disabled = value;
   $("strength").disabled = value;
+  $("portrait").disabled = value;
+  $("portrait-keep").disabled = value;
   $("include-protected").disabled = value;
   $("target").disabled = value;
   $("copy").disabled = value || !target || !groups.length || !!persistenceError;
@@ -140,6 +145,8 @@ function save() {
       mode: $("mode").value,
       strength: $("strength").value,
       includeProtected: $("include-protected").checked,
+      portrait: $("portrait").checked,
+      portraitKeep: Number($("portrait-keep").value),
     },
     algorithmVersion: ALGORITHM_VERSION,
     acceptedPlan: accepted,
@@ -219,7 +226,12 @@ function runWorker(group, signal) {
       .getFile()
       .then((file) => {
         checkAbort(signal);
-        worker.postMessage({ protocol: "cull-v2", id: group.id, file });
+        worker.postMessage({
+          protocol: "cull-v2",
+          id: group.id,
+          file,
+          portrait: $("portrait").checked,
+        });
       })
       .catch((e) => {
         clean();
@@ -251,6 +263,7 @@ async function open(directory) {
     target = null;
     output = null;
     chosen.clear();
+    portraitScope = null;
     decisionHistory = new ReviewDecisionHistory();
     accepted = null;
     session = await store.session(root);
@@ -260,6 +273,16 @@ async function open(directory) {
       session.preferences?.includeProtected ??
       accepted?.plan?.includeProtected ??
       false;
+    $("portrait").checked = portraitPreferenceExplicit
+      ? $("portrait").checked
+      : (session.preferences?.portrait ?? $("portrait").checked);
+    $("portrait-keep").value = String(
+      portraitPreferenceExplicit
+        ? $("portrait-keep").value
+        : (session.preferences?.portraitKeep ?? $("portrait-keep").value),
+    );
+    portraitPreferenceExplicit = false;
+    $("portrait-budget").hidden = !$("portrait").checked;
     $("mode").value = session.preferences?.mode ?? "burst";
     $("strength").value = defaultStrength(
       $("mode").value,
@@ -325,7 +348,10 @@ async function open(directory) {
           }
           const verified =
             cached?.fingerprint === group.fingerprint &&
-            cached.sourceSHA === (await digest(file, signal));
+            cached.sourceSHA === (await digest(file, signal)) &&
+            (!$("portrait").checked ||
+              (cached.analysis?.portrait?.status === "ready" &&
+                cached.analysis?.portrait?.version === PORTRAIT_VERSION));
           if (verified) Object.assign(group, cached);
           else {
             const result = await runWorker(group, signal);
@@ -367,7 +393,16 @@ async function open(directory) {
     await store.rememberDirectory(root);
     $("global").textContent =
       root.name + " · " + groups.length + " 组 · 本地分析完成 · 原件受保护";
-    message("规则短名单已生成。建议与待复核默认可见；未选中原件仍在源目录。");
+    const portraitFailures = groups.filter(
+      (g) => g.analysis?.portrait?.status === "unavailable",
+    ).length;
+    message(
+      portraitFailures
+        ? `人物分析 ${portraitFailures} 组不可用，已安全使用原有规则；未根据缺失的人脸证据新增折叠。原件未改变。`
+        : $("portrait").checked
+          ? "人物连拍推荐已生成。仅比较同场景的脸部清晰度与可靠睁眼证据；侧脸、小脸及未分析项继续按原有规则处理。原件未改变。"
+          : "规则短名单已生成。建议与待复核默认可见；未选中原件仍在源目录。",
+    );
   } catch (e) {
     recompute(false);
     message(
@@ -387,9 +422,12 @@ async function open(directory) {
   }
 }
 function recompute(persist = true) {
+  portraitScope = null;
   const result = rank(groups, {
     strength: $("strength").value,
     mode: $("mode").value,
+    portrait: $("portrait").checked,
+    portraitKeep: Number($("portrait-keep").value),
   });
   recommendations = result.recommendations;
   batches = result.batches;
@@ -454,17 +492,22 @@ function render() {
   $("simple-result-guide").textContent =
     `推荐 ${stats.include} 组，可直接下一步导出。待复核 ${stats.protected} 组暂不选入，导出时可勾选附带；所有原件始终保留。点击照片可放大、改选。`;
   const filter = $("filter").value;
-  const visible = groups.filter(
-    (g) =>
-      filter === "all" ||
-      (filter === "shortlist" && state(g) !== "suppress") ||
-      (filter === "technical-review" &&
-        needsTechnicalReview(g, recommendations[g.id], human[g.id])) ||
-      (filter === "suppress" && state(g) === "suppress") ||
-      (filter === "favorite" && human[g.id]?.favorite) ||
-      (filter === "burst" &&
-        batches.some((b) => b.length > 1 && b.some((x) => x.id === g.id))),
+  const visible = groups.filter((g) =>
+    portraitScope
+      ? portraitScope.has(g.id)
+      : filter === "all" ||
+        (filter === "shortlist" && state(g) !== "suppress") ||
+        (filter === "technical-review" &&
+          needsTechnicalReview(g, recommendations[g.id], human[g.id])) ||
+        (filter === "suppress" && state(g) === "suppress") ||
+        (filter === "favorite" && human[g.id]?.favorite) ||
+        (filter === "burst" &&
+          batches.some((b) => b.length > 1 && b.some((x) => x.id === g.id))),
   );
+  $("portrait-scope").hidden = !portraitScope;
+  $("portrait-scope-text").textContent = portraitScope
+    ? `正在查看这组全部 ${visible.length} 张；导出仍采用整个文件夹的推荐。点“保留 / 暂不导出”可改选。`
+    : "";
   visibleCount = visible.length;
   if (offset >= visibleCount) offset = 0;
   // Bound DOM and active URLs. Revoke old previews before rebuilding a page.
@@ -513,6 +556,17 @@ function render() {
       protected: "待复核 · 尚未选入导出",
       suppress: "暂不导出 · 原件保留",
     }[state(g)];
+    const portrait = g.analysis?.portrait;
+    if (portrait?.faces?.length) {
+      const faceStatus = document.createElement("p");
+      const portraitBatch = m?.portraitBatch
+        ? batches.find((b) => b.some((x) => x.id === g.id))
+        : null;
+      faceStatus.textContent = portraitBatch
+        ? `人物连拍 · 同组 ${portraitBatch.length} 张 · 自动推荐 ${portraitBatch.filter((x) => recommendations[x.id]?.plan === "include").length} 张 / 待复核 ${portraitBatch.filter((x) => recommendations[x.id]?.plan === "protected").length} 张`
+        : "检测到人脸 · 未确定为同一连拍";
+      card.append(faceStatus);
+    }
     card.append(status);
     detail.textContent =
       { include: "建议保留", protected: "待复核 / 保护", suppress: "暂不导出" }[
@@ -565,6 +619,18 @@ function render() {
     );
     const actions = [...card.querySelectorAll("button")];
     for (const i of [0, 1, 4, 5]) actions[i].classList.add("advanced-control");
+    if (m?.portraitBatch)
+      card.append(
+        button("看这组全部", () => {
+          const batch = batches.find((b) => b.some((x) => x.id === g.id));
+          portraitScope = new Set(batch.map((x) => x.id));
+          chosen.clear();
+          offset = 0;
+          render();
+          $("portrait-scope").scrollIntoView({ block: "start" });
+          $("portrait-scope-close").focus({ preventScroll: true });
+        }),
+      );
     $("grid").append(card);
     effortController?.observeGrid(card, g.id);
   }
@@ -951,7 +1017,31 @@ $("mode").onchange = async () => {
   await effortController?.pauseForContextChange();
   if (!busy) recompute();
 };
+$("portrait").onchange = async () => {
+  portraitPreferenceExplicit = true;
+  $("portrait-budget").hidden = !$("portrait").checked;
+  if (!root || busy) return;
+  await effortController?.pauseForContextChange();
+  try {
+    await save();
+    await open(root);
+  } catch (error) {
+    message("人物设置保存失败，请重试；原件未改变：" + error.message);
+  }
+};
+$("portrait-keep").onchange = async () => {
+  if (!root) portraitPreferenceExplicit = true;
+  await effortController?.pauseForContextChange();
+  if (!busy) recompute();
+};
+$("portrait-scope-close").onclick = () => {
+  portraitScope = null;
+  chosen.clear();
+  offset = 0;
+  render();
+};
 $("filter").onchange = () => {
+  portraitScope = null;
   limit = 60;
   offset = 0;
   render();
@@ -968,7 +1058,12 @@ function currentPlan() {
       recommendations,
       $("include-protected").checked,
     ),
-    preferences: { mode: $("mode").value, strength: $("strength").value },
+    preferences: {
+      mode: $("mode").value,
+      strength: $("strength").value,
+      portrait: $("portrait").checked,
+      portraitKeep: Number($("portrait-keep").value),
+    },
   };
 }
 async function acceptCurrentPlan() {
@@ -1183,7 +1278,12 @@ installBenchmark({
     recommendations,
     session,
     busy,
-    preferences: { mode: $("mode").value, strength: $("strength").value },
+    preferences: {
+      mode: $("mode").value,
+      strength: $("strength").value,
+      portrait: $("portrait").checked,
+      portraitKeep: Number($("portrait-keep").value),
+    },
   }),
   save,
   message,
@@ -1209,7 +1309,12 @@ effortController = installReviewEffort({
     session,
     busy,
     view,
-    preferences: { mode: $("mode").value, strength: $("strength").value },
+    preferences: {
+      mode: $("mode").value,
+      strength: $("strength").value,
+      portrait: $("portrait").checked,
+      portraitKeep: Number($("portrait-keep").value),
+    },
   }),
   persist: persistEffort,
   message,

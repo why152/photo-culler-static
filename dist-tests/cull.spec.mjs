@@ -530,7 +530,11 @@ test("review shortcuts undo independently, narrow survey falls back, inputs keep
   );
 });
 
-for (const priorAlgorithm of ["rules-2.0-beta.2", "rules-2.0-beta.3"])
+for (const priorAlgorithm of [
+  "rules-2.0-beta.2",
+  "rules-2.0-beta.3",
+  "rules-2.0-beta.4",
+])
   test(`${priorAlgorithm} accepted plan requires reacceptance after upgrade while favorite survives`, async ({
     page,
   }) => {
@@ -809,6 +813,8 @@ test("downloaded labels restore after browser study loss, invalid imports or dec
   expect(backup.study.preferences).toEqual({
     mode: "burst",
     strength: "compact",
+    portrait: false,
+    portraitKeep: 1,
   });
   expect(backup.study.labels["group:A"].source).toBe("human");
   await page
@@ -1249,4 +1255,91 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
     "aria-expanded",
     "true",
   );
+});
+
+test("portrait enhancement is opt-in, self-hosted and versioned without changing source bytes", async ({
+  page,
+}) => {
+  const requests = [];
+  page.on("request", (r) =>
+    requests.push({ url: r.url(), method: r.method() }),
+  );
+  await page.goto("./");
+  await fixture(page);
+  await expect(page.locator("#portrait")).not.toBeChecked();
+  await expect(page.locator("#portrait-budget")).not.toBeVisible();
+  expect(
+    requests.some((r) => /models\/portrait|portrait-runtime/.test(r.url)),
+  ).toBe(false);
+  await page.locator("#portrait").check();
+  await expect(page.locator("#portrait-budget")).toBeVisible();
+  await page.locator("#portrait-keep").selectOption("2");
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  const result = await page.evaluate(async () => {
+    const db = await new Promise((r) => {
+      const q = indexedDB.open("photo-culler-local");
+      q.onsuccess = () => r(q.result);
+    });
+    const all = (n) =>
+      new Promise((r) => {
+        const q = db.transaction(n).objectStore(n).getAll();
+        q.onsuccess = () => r(q.result);
+      });
+    const analysis = await all("analysis"),
+      sessions = await all("cull-sessions");
+    db.close();
+    return {
+      portrait: analysis
+        .filter((x) => x.analysis.analysis.thumbnail)
+        .map((x) => x.analysis.analysis.portrait),
+      prefs: sessions[0].preferences,
+    };
+  });
+  expect(result.portrait).toHaveLength(4);
+  expect(result.portrait.every((x) => x?.status === "ready")).toBe(true);
+  expect(result.prefs.portrait).toBe(true);
+  expect(result.prefs.portraitKeep).toBe(2);
+  expect(
+    requests.some((r) => /models\/portrait-v1\/.*\.wasm/.test(r.url)),
+  ).toBe(true);
+  expect(
+    requests
+      .filter((r) => /^https?:/.test(r.url))
+      .every(
+        (r) =>
+          new URL(r.url).origin === new URL(page.url()).origin &&
+          r.method === "GET",
+      ),
+  ).toBe(true);
+  await page.locator("#accept").click();
+  await expect(page.locator("#acceptance-status-export")).toContainText(
+    "已采纳",
+  );
+  await page.reload();
+  await page.locator("#sessions button").first().click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.locator("[data-space=import]").click();
+  await expect(page.locator("#portrait")).toBeChecked();
+  await page.locator("#portrait-keep").selectOption("1");
+  await expect(page.locator("#acceptance-status-export")).toContainText(
+    "尚未采纳",
+  );
+});
+
+test("missing portrait model falls back to unchanged rules and keeps photo review usable", async ({
+  page,
+}) => {
+  await page.route("**/models/portrait-v1/**", (route) =>
+    route.fulfill({ status: 404, body: "synthetic missing model" }),
+  );
+  await page.goto("./");
+  await fixture(page);
+  await page.locator("#portrait").check();
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await expect(page.locator("#feedback")).toContainText("已安全使用原有规则");
+  await page.locator("#accept").click();
+  await expect(page.locator("#export-space")).toBeVisible();
+  await expect(page.locator("#copy")).toBeDisabled();
 });

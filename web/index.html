@@ -91,6 +91,26 @@
       <section id="import-space">
         <h1>先选文件夹，自动帮你挑。</h1>
         <p>选好文件夹后，等待分析完成，再查看推荐并导出副本。照片不会上传。</p>
+        <div class="portrait-option">
+          <label
+            ><input
+              id="portrait"
+              type="checkbox"
+            />人物连拍优选（本地分析）</label
+          >
+          <label id="portrait-budget" hidden
+            >每组推荐
+            <select id="portrait-keep">
+              <option value="1" selected>1 张</option>
+              <option value="2">2 张</option>
+              <option value="3">3 张</option>
+            </select>
+          </label>
+          <p id="portrait-note">
+            可选：分析睁眼和脸部清晰度，同场景连拍只推荐少量候选。启用时从本站加载约
+            3 MB 模型，不上传照片；小脸、侧脸和表情仍需复核。
+          </p>
+        </div>
         <button id="choose">选择照片文件夹</button
         ><label class="advanced-control"
           >模式
@@ -145,6 +165,10 @@
           勾选 2–4 张比较；点击图片单图查看。J/K 前后浏览，1 精选，Esc
           关闭。低置信候选需要人工复核。
         </p>
+        <p id="portrait-scope" hidden>
+          <span id="portrait-scope-text"></span>
+          <button id="portrait-scope-close">返回推荐</button>
+        </p>
         <div id="grid" class="grid"></div>
         <button id="more" hidden>再显示 60 组</button>
       </section>
@@ -184,8 +208,9 @@
         <summary>帮助、隐私与验收限制</summary>
         <p>
           JPEG/PNG/WebP 可分析；HEIC 取决于浏览器。RAW
-          不解码。没有可靠拍摄时间只进行精确重复候选判断。夜景、曝光包围、低清晰度和未知格式保守保留。规则排序只比较同组，不判艺术价值。模型增强关闭：尚未验证
-          MediaPipe 无遥测，尚无验证通过的小型 embedding 模型。
+          不解码。没有可靠拍摄时间只进行精确重复候选判断。夜景、曝光包围、低清晰度和未知格式保守保留。规则排序只比较同组，不判艺术价值。人物增强可选启用：只从本站加载
+          TensorFlow.js/WASM 模型，不使用 MediaPipe SDK、不上传照片。语义
+          embedding 与表情审美判断仍延期。
           低曝光但存在连续清晰区域时可推荐同组代表，其余疑难仍保护。
         </p>
         <p>
@@ -195,8 +220,8 @@
         </p>
         <p>
           无需注册，不上传照片、路径、EXIF 或遥测。未验证真实 S9 偏好召回与
-          Windows Edge 外部目录操作，不能作为
-          Stable。写入失败可下载报告，成功仅在 SHA 校验后显示。
+          其他平台外部目录操作，不能作为 Stable。写入失败可下载报告，成功仅在
+          SHA 校验后显示。
         </p>
       </details>
     </main>
