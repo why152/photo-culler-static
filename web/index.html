@@ -73,10 +73,13 @@
     </script>
   </head>
   <body data-tools="simple">
-    <header>
+    <header id="app-header">
       <a href="./">Photo Culler</a><span class="badge">2.0 Beta</span
       ><span>原件始终保留 · 照片不上传</span
       ><a class="advanced-control" href="./legacy.html">1.0 图库与历史恢复</a>
+      <div id="gallery-actions">
+        <button id="tools-toggle" aria-expanded="false">设置</button>
+      </div>
     </header>
     <main>
       <nav aria-label="工作区">
@@ -84,21 +87,15 @@
         ><button data-space="results">② 看推荐</button
         ><button data-space="export">③ 导出副本</button>
       </nav>
-      <button id="tools-toggle" aria-expanded="false">更多工具</button>
       <p id="global" role="status">
         先选照片文件夹，剩下交给自动筛选。原件不会改动。
       </p>
       <section id="import-space">
-        <h1>先选文件夹，自动帮你挑。</h1>
-        <p>选好文件夹后，等待分析完成，再查看推荐并导出副本。照片不会上传。</p>
+        <h1>开始筛选照片</h1>
+        <p class="entry-intro">选择照片文件夹，自动整理推荐。原件始终保留。</p>
         <div class="portrait-option">
-          <label
-            ><input
-              id="portrait"
-              type="checkbox"
-            />人物连拍优选（本地分析）</label
-          >
-          <label id="portrait-budget" hidden
+          <label><input id="portrait" type="checkbox" />自动挑选人物连拍</label>
+          <label id="portrait-budget" class="advanced-control" hidden
             >每组推荐
             <select id="portrait-keep">
               <option value="1" selected>1 张</option>
@@ -106,12 +103,12 @@
               <option value="3">3 张</option>
             </select>
           </label>
-          <p id="portrait-note">
+          <p id="portrait-note" class="advanced-control">
             可选：分析睁眼和脸部清晰度，同场景连拍只推荐少量候选。启用时从本站加载约
-            3 MB 模型，不上传照片；小脸、侧脸和表情仍需复核。
+            4 MB 模型，不上传照片；小脸、侧脸和表情仍需复核。
           </p>
         </div>
-        <button id="choose">选择照片文件夹</button
+        <span id="choose-home"></span><button id="choose">选择照片文件夹</button
         ><label class="advanced-control"
           >模式
           <select id="mode">
@@ -141,12 +138,21 @@
         <p id="simple-result-guide">
           可以直接采用推荐，也可以点击照片放大；想改选时点“保留”或“暂不导出”。
         </p>
+        <p id="gallery-summary"></p>
         <div id="stats" class="stats"></div>
         <div class="toolbar">
           <button id="accept">接受整批推荐</button
           ><button id="undo-accept" class="advanced-control">
-            取消本批采纳</button
-          ><label
+            取消本批采纳
+          </button>
+          <div id="gallery-filters">
+            <button data-gallery-filter="shortlist" aria-pressed="true">
+              推荐与待复核</button
+            ><button data-gallery-filter="all" aria-pressed="false">
+              全部照片
+            </button>
+          </div>
+          <label class="advanced-control"
             >显示
             <select id="filter">
               <option value="shortlist">推荐与待复核</option>
@@ -173,7 +179,8 @@
         <button id="more" hidden>再显示 60 组</button>
       </section>
       <section id="export-space" hidden>
-        <h1>最后一步：选一个保存位置。</h1>
+        <button id="gallery-back">← 返回照片</button>
+        <h1>导出选好的照片</h1>
         <p>
           导出的照片会放进新文件夹。源文件夹里的所有原件都保留，不会移动或删除。
         </p>
@@ -226,11 +233,19 @@
       </details>
     </main>
     <dialog id="compare">
-      <form method="dialog"><button>关闭 Esc</button></form>
-      <label><input id="sync" type="checkbox" checked />同步缩放 / 平移</label
+      <form method="dialog"><button>返回照片</button></form>
+      <label class="advanced-control"
+        ><input id="sync" type="checkbox" checked />同步缩放 / 平移</label
       ><button id="zoom-reset">适合窗口</button
       ><button id="zoom-one">1:1</button>
       <div id="compare-images"></div>
+      <div id="viewer-actions" hidden>
+        <button id="viewer-prev">← 上一张</button>
+        <button id="viewer-keep">保留</button>
+        <button id="viewer-exclude">暂不导出</button>
+        <button id="viewer-next">下一张 →</button>
+        <span id="viewer-decision" role="status"></span>
+      </div>
     </dialog>
     <dialog id="confirm">
       <h2>确认复制原件</h2>

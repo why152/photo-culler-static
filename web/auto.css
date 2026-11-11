@@ -346,3 +346,100 @@ body[data-tools="advanced"] .simple-card-status {
   width: 20px;
   height: 20px;
 }
+
+/* Familiar gallery surface; the underlying review/export safety stays separate. */
+#gallery-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+#gallery-actions #tools-toggle {
+  float: none;
+  margin: 0;
+}
+#choose-home {
+  display: none;
+}
+#gallery-summary {
+  margin: 0;
+  font-size: 14px;
+}
+#viewer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 14px;
+}
+#viewer-decision {
+  color: #c8cbd2;
+  margin-left: 10px;
+}
+body[data-tools="simple"] main {
+  padding-top: 18px;
+}
+body[data-tools="simple"] header {
+  padding: 16px 4vw;
+}
+body[data-tools="simple"] nav,
+body[data-tools="simple"] .steps,
+body[data-tools="simple"] #stats,
+body[data-tools="simple"] #results-space > h1,
+body[data-tools="simple"] #simple-result-guide {
+  display: none;
+}
+body[data-tools="simple"] #import-space {
+  text-align: center;
+  padding: 70px 0 40px;
+  min-height: 450px;
+}
+body[data-tools="simple"] #import-space h1 {
+  font-size: 30px;
+  margin: 0 auto 12px;
+}
+body[data-tools="simple"] #import-space .entry-intro {
+  font-size: 15px;
+}
+body[data-tools="simple"] .portrait-option {
+  border: 0;
+  padding: 0;
+  margin: 12px 0;
+}
+body[data-tools="simple"] #import-space h2 {
+  font-size: 16px;
+  margin-top: 36px;
+}
+body[data-tools="simple"] #results-space .toolbar {
+  margin: 12px 0;
+}
+body[data-tools="simple"] #export-space h1 {
+  font-size: 28px;
+  margin-top: 20px;
+}
+body[data-tools="simple"] #global {
+  font-size: 14px;
+  margin: 4px 0 12px;
+}
+body[data-tools="advanced"] #gallery-summary {
+  display: none;
+}
+@media (max-width: 700px) {
+  #gallery-actions {
+    flex-wrap: wrap;
+  }
+  body[data-tools="simple"] #import-space {
+    padding-top: 35px;
+  }
+}
+#gallery-filters {
+  display: flex;
+  gap: 6px;
+}
+#gallery-filters [aria-pressed="true"] {
+  border-color: #e2c48b;
+  color: #e2c48b;
+}
+body[data-tools="advanced"] #gallery-filters {
+  display: none;
+}

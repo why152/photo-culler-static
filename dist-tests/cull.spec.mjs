@@ -1199,7 +1199,7 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
-  await expect(page.locator("#accept")).toHaveText("下一步：导出推荐照片");
+  await expect(page.locator("#accept")).toHaveText("导出推荐");
   await expect(page.locator("#simple-result-guide")).toContainText("暂不选入");
   await expect(page.locator("#effort-open")).not.toBeVisible();
   await expect(
@@ -1214,8 +1214,23 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
       .first()
       .getByRole("button", { name: "拆出连拍", exact: true }),
   ).not.toBeVisible();
+  await expect(page.locator("nav")).not.toBeVisible();
+  await expect(page.locator("#stats")).not.toBeVisible();
+  await expect(page.locator("#app-header #choose")).toBeVisible();
+  await page.getByRole("button", { name: "全部照片", exact: true }).click();
+  await expect(page.locator(".card")).toHaveCount(7);
+  await page.getByRole("button", { name: "推荐与待复核", exact: true }).click();
   await page.locator(".card img").first().click();
   await expect(page.locator("#compare")).toBeVisible();
+  await expect(page.locator("#viewer-next")).toBeVisible();
+  await page.locator("#viewer-exclude").click();
+  await expect(page.locator("#viewer-decision")).toContainText("暂不导出");
+  await page.locator("#viewer-keep").click();
+  await expect(page.locator("#viewer-decision")).toContainText("已选入导出");
+  await page.locator("#viewer-next").click();
+  await expect(page.locator("#compare img")).toHaveAttribute("alt", "B");
+  await page.locator("#viewer-prev").click();
+  await expect(page.locator("#compare img")).toHaveAttribute("alt", "A");
   await page.keyboard.press("Escape");
   await page.screenshot({
     path: "output/simple-workflow/results.png",
@@ -1242,11 +1257,11 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
       async () => (await Array.fromAsync(window.__target.values())).length,
     ),
   ).toBe(0);
-  await page.locator('[data-space="results"]').click();
-  await expect(page.locator("#accept")).toHaveText("继续：选择保存位置");
+  await page.locator("#gallery-back").click();
+  await expect(page.locator("#accept")).toHaveText("继续导出");
   await page.locator("#accept").click();
   await expect(page.locator("#export-space")).toBeVisible();
-  await page.locator('[data-space="results"]').click();
+  await page.locator("#gallery-back").click();
   await page.locator("#tools-toggle").click();
   await expect(page.locator("#effort-open")).toBeVisible();
   await expect(page.locator("#compare-two")).toBeVisible();
@@ -1272,6 +1287,8 @@ test("portrait enhancement is opt-in, self-hosted and versioned without changing
     requests.some((r) => /models\/portrait|portrait-runtime/.test(r.url)),
   ).toBe(false);
   await page.locator("#portrait").check();
+  await expect(page.locator("#portrait-budget")).not.toBeVisible();
+  await page.locator("#tools-toggle").click();
   await expect(page.locator("#portrait-budget")).toBeVisible();
   await page.locator("#portrait-keep").selectOption("2");
   await page.locator("#choose").click();

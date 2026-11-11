@@ -37,14 +37,21 @@ let moreTools = false;
 try {
   moreTools = sessionStorage.getItem("photo-culler-more-tools") === "true";
 } catch {}
+function syncGalleryShell() {
+  const compact = document.body.dataset.tools === "simple";
+  const reviewing = !$("results-space").hidden || !$("export-space").hidden;
+  if (compact && reviewing) $("gallery-actions").prepend($("choose"));
+  else $("choose-home").after($("choose"));
+  $("choose").textContent = reviewing ? "选择其他文件夹" : "选择照片文件夹";
+  $("global").hidden = compact && !reviewing && $("cancel").hidden;
+}
 function renderTools() {
   document.body.dataset.tools = moreTools ? "advanced" : "simple";
-  $("tools-toggle").textContent = moreTools ? "收起更多工具" : "更多工具";
+  $("tools-toggle").textContent = moreTools ? "收起设置" : "设置";
   $("tools-toggle").setAttribute("aria-expanded", String(moreTools));
+  syncGalleryShell();
   if ($("accept") && !$("accept").disabled)
-    $("accept").textContent = moreTools
-      ? "接受整批推荐"
-      : "下一步：导出推荐照片";
+    $("accept").textContent = moreTools ? "接受整批推荐" : "导出推荐";
 }
 $("tools-toggle").onclick = () => {
   moreTools = !moreTools;
@@ -106,6 +113,7 @@ function show(space) {
   }
   if (space === "results") render();
   if (space === "export") renderPlan();
+  syncGalleryShell();
   effortController?.surfaceChanged();
 }
 function setBusy(value) {
@@ -113,6 +121,7 @@ function setBusy(value) {
   $("choose").disabled = value;
   $("cancel").hidden = !value;
   $("pause").hidden = !value || view === "export";
+  syncGalleryShell();
   $("accept").disabled = value;
   $("mode").disabled = value;
   $("strength").disabled = value;
@@ -491,7 +500,11 @@ function render() {
   }
   $("simple-result-guide").textContent =
     `推荐 ${stats.include} 组，可直接下一步导出。待复核 ${stats.protected} 组暂不选入，导出时可勾选附带；所有原件始终保留。点击照片可放大、改选。`;
+  $("gallery-summary").textContent =
+    `推荐 ${stats.include} · 待复核 ${stats.protected}（尚未选入导出） · 其余原件仍在文件夹中`;
   const filter = $("filter").value;
+  for (const b of document.querySelectorAll("[data-gallery-filter]"))
+    b.setAttribute("aria-pressed", String(b.dataset.galleryFilter === filter));
   const visible = groups.filter((g) =>
     portraitScope
       ? portraitScope.has(g.id)
@@ -544,7 +557,11 @@ function render() {
       card.append(img);
     }
     const name = document.createElement("p");
-    name.textContent = g.path + " · " + g.members.length + " 个原始文件";
+    name.textContent = g.path;
+    const memberCount = document.createElement("small");
+    memberCount.className = "advanced-control";
+    memberCount.textContent = " · " + g.members.length + " 个原始文件";
+    name.append(memberCount);
     card.append(name);
     const detail = document.createElement("p");
     const m = recommendations[g.id];
@@ -638,6 +655,7 @@ function render() {
   $("more").textContent =
     offset + limit < visible.length ? "下一页 60 组" : "回到第一页";
   renderPlan();
+  updateViewerActions();
 }
 const acceptanceStatuses = [];
 for (const space of ["results", "export"]) {
@@ -707,10 +725,10 @@ function renderPlan() {
   $("accept").textContent = confirmed
     ? moreTools
       ? "已接受整批推荐"
-      : "继续：选择保存位置"
+      : "继续导出"
     : moreTools
       ? "接受整批推荐"
-      : "下一步：导出推荐照片";
+      : "导出推荐";
   $("undo-accept").disabled = busy || !accepted;
   exportAccept.disabled = busy || !groups.length || confirmed;
   exportAccept.hidden = !moreTools && confirmed;
@@ -763,6 +781,8 @@ async function compare(list) {
   const generation = ++compareGeneration;
   const comparisonSession = session?.id;
   compared = list;
+  $("viewer-actions").hidden = list.length !== 1;
+  updateViewerActions();
   zooms.length = 0;
   $("compare-images").replaceChildren();
   $("compare-images").className = list.length === 1 ? "single" : "";
@@ -790,7 +810,7 @@ async function compare(list) {
     // oversized image decode is limited to the existing 1600px preview contract.
     frame.append(img);
     const caption = document.createElement("p");
-    caption.textContent = g.path + " · 1 精选 · J/K 浏览";
+    caption.textContent = g.path;
     frame.append(caption);
     $("compare-images").append(frame);
     const blob = g.analysis?.thumbnail;
@@ -856,6 +876,39 @@ async function compare(list) {
     };
   }
 }
+function updateViewerActions() {
+  const g = compared[0];
+  if (!g || compared.length !== 1) return;
+  const index = groups.indexOf(g);
+  $("viewer-prev").disabled = busy || index <= 0;
+  $("viewer-next").disabled = busy || index >= groups.length - 1;
+  $("viewer-keep").disabled = busy;
+  $("viewer-exclude").disabled = busy;
+  $("viewer-decision").textContent = {
+    include: "已选入导出",
+    suppress: "暂不导出，原件保留",
+    protected: "待复核，尚未选入导出",
+  }[state(g)];
+}
+function browseViewer(delta) {
+  const g = groups[groups.indexOf(compared[0]) + delta];
+  if (!busy && g) void compare([g]);
+}
+$("viewer-prev").onclick = () => browseViewer(-1);
+$("viewer-next").onclick = () => browseViewer(1);
+$("viewer-keep").onclick = () => {
+  if (compared[0])
+    void decide(compared[0], "keep", human[compared[0].id]?.favorite ?? false);
+};
+$("viewer-exclude").onclick = () => {
+  if (compared[0]) void decide(compared[0], "exclude", false);
+};
+$("gallery-back").onclick = () => show("results");
+for (const b of document.querySelectorAll("[data-gallery-filter]"))
+  b.onclick = () => {
+    $("filter").value = b.dataset.galleryFilter;
+    $("filter").dispatchEvent(new Event("change"));
+  };
 document.addEventListener("fullscreenchange", () => {
   if (!document.fullscreenElement) viewerFullscreen = false;
 });
