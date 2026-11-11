@@ -381,7 +381,7 @@ test("accept saves the exact plan, undo gates copy, changes invalidate it, and r
   ).toBe(0);
 });
 
-test("favorite-filtered paging wraps 90 results instead of using the whole inventory", async ({
+test("favorite-filtered continuous review exposes all 90 results without page controls", async ({
   page,
 }) => {
   await page.goto("./");
@@ -433,11 +433,12 @@ test("favorite-filtered paging wraps 90 results instead of using the whole inven
     timeout: 30000,
   });
   await page.locator("#filter").selectOption("favorite");
-  await expect(page.locator(".card")).toHaveCount(60);
-  await page.locator("#more").click();
-  await expect(page.locator(".card")).toHaveCount(30);
-  await page.locator("#more").click();
-  await expect(page.locator(".card")).toHaveCount(60);
+  await expect(page.locator(".card")).toHaveCount(90);
+  await expect(page.locator("#more")).toHaveCount(0);
+  await expect(page.locator(".card").last()).toHaveAttribute(
+    "data-group-id",
+    "group:Fav089",
+  );
 });
 
 test("AI labels import locally by path and SHA, persist separately and require individual human confirmation", async ({
@@ -583,6 +584,7 @@ for (const priorAlgorithm of [
   "rules-2.0-beta.2",
   "rules-2.0-beta.3",
   "rules-2.0-beta.4",
+  "rules-2.0-beta.5",
 ])
   test(`${priorAlgorithm} accepted plan requires reacceptance after upgrade while favorite survives`, async ({
     page,
@@ -1267,7 +1269,7 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
   await expect(page.locator(".card")).toHaveCount(4);
   await page.getByRole("button", { name: "展开 4 张", exact: true }).click();
   await expect(page.locator(".card")).toHaveCount(7);
-  await page.getByRole("button", { name: "推荐与待复核", exact: true }).click();
+  await page.getByRole("button", { name: "全部照片", exact: true }).click();
   await page.locator(".card img").first().click();
   await expect(page.locator("#compare")).toBeVisible();
   await expect(page.locator("#viewer-next")).toBeVisible();
@@ -1698,9 +1700,14 @@ test("photo-first stack expands without choosing, keyboard toggles retain focus 
       page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
     )
     .toBe(true);
-  const size = await a.locator(".photo-select").boundingBox();
-  expect(size.width).toBeGreaterThanOrEqual(44);
-  expect(size.height).toBeGreaterThanOrEqual(44);
+  // ResizeObserver rebuilds the row layout asynchronously; measure after the
+  // card is attached and painted, including on slower CI compositors.
+  await expect.poll(async () => {
+    const size = await a.locator(".photo-select").boundingBox();
+    return Boolean(size && size.width >= 44 && size.height >= 44);
+  }).toBe(true);
+  await page.locator("#grid img").evaluateAll(imgs=>Promise.all(imgs.map(img=>img.decode())));
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   await page.screenshot({
     path: "output/photo-first-polish/narrow.png",
     fullPage: true,
@@ -1713,4 +1720,177 @@ test("photo-first stack expands without choosing, keyboard toggles retain focus 
     "aria-pressed",
     "true",
   );
+});
+
+test("2000-photo continuous review reuses verified beta.5 evidence, scrolls both ways and preserves distant choices", async ({
+  page,
+}) => {
+  test.setTimeout(120000);
+  await page.goto("./");
+  await fixture(page, { legacy: false });
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.evaluate(async () => {
+    const db = await new Promise((resolve) => {
+      const r = indexedDB.open("photo-culler-local");
+      r.onsuccess = () => resolve(r.result);
+    });
+    const getAll = (name) =>
+      new Promise((resolve) => {
+        const r = db.transaction(name).objectStore(name).getAll();
+        r.onsuccess = () => resolve(r.result);
+      });
+    const template = (await getAll("analysis")).find(
+      (r) => r.analysis.analysis.thumbnail,
+    );
+    const session = (await getAll("cull-sessions"))[0];
+    const files = [];
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: 8 }, async () => {
+        while (next < 1993) {
+          const i = next++,
+            name = "Huge" + String(i).padStart(4, "0") + ".jpg";
+          const h = await window.__source.getFileHandle(name, { create: true });
+          const w = await h.createWritable();
+          await w.write(window.__blob);
+          await w.close();
+          const f = await h.getFile();
+          files.push({ name, size: f.size, mtime: f.lastModified });
+        }
+      }),
+    );
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(["analysis", "cull-sessions"], "readwrite");
+      const cache = tx.objectStore("analysis");
+      for (const f of files) {
+        const fingerprint = JSON.stringify([[f.name, f.size, f.mtime]]);
+        const analysis = { ...template.analysis, fingerprint };
+        const record = {
+          ...template,
+          algorithmVersion: "rules-2.0-beta.5",
+          analysis,
+        };
+        cache.put(
+          record,
+          JSON.stringify([
+            template.directoryId,
+            "rules-2.0-beta.5",
+            f.name,
+            f.size,
+            f.mtime,
+          ]),
+        );
+      }
+      tx.objectStore("cull-sessions").put(
+        {
+          ...session,
+          splits: files.map((f) => "group:" + f.name.slice(0, -4)),
+        },
+        session.id,
+      );
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  });
+  const models = [];
+  await page.route("**/models/portrait-v1/**", (route) => {
+    models.push(route.request().url());
+    return route.abort();
+  });
+  await page.reload();
+  await page.locator("#sessions button").first().click();
+  await expect(page.locator("#global")).toContainText("本地分析完成", {
+    timeout: 90000,
+  });
+  await expect(page.locator("#gallery-summary")).toContainText("2000 项");
+  await expect(page.locator("#more")).toHaveCount(0);
+  await expect(page.locator("#grid")).toHaveAttribute("data-virtual", "true");
+  expect(await page.locator(".card").count()).toBeLessThanOrEqual(120);
+  expect(models).toEqual([]);
+  await page.evaluate(() =>
+    window.scrollTo(0, document.documentElement.scrollHeight),
+  );
+  const last = page.locator('.card[data-group-id="group:Huge1992"]');
+  await expect(last).toBeVisible();
+  await expect(page.locator("#accept")).toBeInViewport();
+  expect(await page.locator(".card").count()).toBeLessThanOrEqual(120);
+  await last.locator(".photo-select").click();
+  await expect(last).toHaveAttribute("data-decision", "suppress");
+  await expect(last.locator(".photo-select")).toBeFocused();
+  await last.locator("img").click();
+  await page.locator("#viewer-prev").click();
+  await expect(page.locator("#compare img")).toHaveAttribute("alt", "Huge1991");
+  await page.keyboard.press("Escape");
+  await expect(
+    page.locator('.card[data-group-id="group:Huge1991"]'),
+  ).toBeInViewport();
+  await page
+    .locator('.card[data-group-id="group:Huge1991"] .photo-select')
+    .focus();
+  await page.keyboard.press("Home");
+  await expect(page.locator('.card[data-group-id="group:A"]')).toBeVisible();
+  await page.keyboard.press("End");
+  await expect(page.locator(".card").last()).toHaveAttribute(
+    "aria-posinset",
+    "1997",
+  );
+  await page.evaluate(() =>
+    window.scrollTo(0, document.documentElement.scrollHeight / 2),
+  );
+  await expect
+    .poll(() =>
+      page
+        .locator(".card")
+        .evaluateAll((cards) =>
+          cards.some(
+            (c) =>
+              c.getBoundingClientRect().top >= 0 &&
+              c.getBoundingClientRect().top < innerHeight,
+          ),
+        ),
+    )
+    .toBe(true);
+  const anchor = await page
+    .locator(".card")
+    .evaluateAll(
+      (cards) =>
+        cards.find(
+          (c) =>
+            c.getBoundingClientRect().top >= 0 &&
+            c.getBoundingClientRect().top < innerHeight,
+        )?.dataset.groupId,
+    );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    page.locator(`.card[data-group-id="${anchor}"]`),
+  ).toBeInViewport();
+  expect(await page.locator(".card").count()).toBeLessThanOrEqual(120);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.evaluate(() =>
+    window.scrollTo(0, document.documentElement.scrollHeight),
+  );
+  await expect(last).toHaveAttribute("data-decision", "suppress");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.locator('.card[data-group-id="group:A"]')).toBeVisible();
+  await page.locator("#tools-toggle").click();
+  await page.locator("#filter").selectOption("favorite");
+  await expect(page.locator(".card")).toHaveCount(0);
+  await page.locator("#filter").selectOption("all");
+  await expect(page.locator(".card").first()).toHaveAttribute(
+    "data-group-id",
+    "group:A",
+  );
+  await page.locator("#accept").click();
+  await expect(page.locator("#export-space")).toBeVisible();
+  await expect(page.locator("#acceptance-status-export")).toContainText(
+    "已采纳",
+  );
+  await expect(page.locator("#organization-total")).toContainText(
+    "2002 个文件",
+  );
+  const saved = await readStudySession(page);
+  expect(saved.acceptedPlan.plan.groupCount).toBe(2000);
+  expect(saved.acceptedPlan.plan.fileCount).toBe(2002);
 });

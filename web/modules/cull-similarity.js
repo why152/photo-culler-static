@@ -56,11 +56,14 @@ export function versionCandidate(a, b) {
   );
   return differentSize || differentFormat || edited;
 }
-export function similarityKind(batch) {
+export function similarityKind(batch, { portrait = false } = {}) {
   if (batch.length === 1)
     return batch[0].protected || !batch[0].hash ? "unknown" : "unique";
   if (batch[0].exact && batch.every((g) => g.exact === batch[0].exact))
     return "exact";
+  // Resizing one *different capture* must not turn an entire real burst into
+  // edit variants. Equal/missing capture times remain ambiguous and protected.
+  if (portrait && distinctCaptureBurst(batch)) return "burst";
   if (
     batch.some((g, i) =>
       batch.slice(i + 1).some((other) => versionCandidate(g, other)),
@@ -70,6 +73,31 @@ export function similarityKind(batch) {
   return batch.every((g) => g.metadata?.capturedAt != null)
     ? "burst"
     : "unknown";
+}
+export function distinctCaptureBurst(batch) {
+  if (
+    batch.length < 2 ||
+    batch.length > 30 ||
+    batch.some((g) => g.protected || g.manualSplit || !usablePortrait(g))
+  )
+    return false;
+  const times = batch.map((g) => g.metadata?.capturedAt);
+  if (
+    times.some((t) => !Number.isFinite(t)) ||
+    new Set(times).size !== times.length ||
+    Math.max(...times) - Math.min(...times) > 12000
+  )
+    return false;
+  return batch.every((g, i) =>
+    batch
+      .slice(i + 1)
+      .every(
+        (other) =>
+          portraitPair(g, other) &&
+          orbAgreement(g.analysis.portrait.orb, other.analysis.portrait.orb) >=
+            0.3,
+      ),
+  );
 }
 // Complete-link, bounded time window: no A~B~C transitive chains.
 export function portraitPair(a, b) {
@@ -85,6 +113,13 @@ export function portraitPair(a, b) {
     Math.abs(ad.width / ad.height - bd.width / bd.height) > 0.08
   )
     return false;
+  const closeCapture =
+    Number.isFinite(a.metadata?.capturedAt) &&
+    Number.isFinite(b.metadata?.capturedAt) &&
+    Math.abs(a.metadata.capturedAt - b.metadata.capturedAt) <= 2500 &&
+    distance(a.hash, b.hash) <= 12 &&
+    x.some((f, i) => distance(f.hash, y[i]?.hash) > 18) &&
+    orbAgreement(a.analysis.portrait.orb, b.analysis.portrait.orb) >= 0.5;
   const compatible = x.every((f, i) => {
     const g = y[i],
       p = f.box,
@@ -93,7 +128,15 @@ export function portraitPair(a, b) {
     return (
       f.hash &&
       g.hash &&
-      distance(f.hash, g.hash) <= 18 &&
+      (distance(f.hash, g.hash) <= 18 ||
+        (closeCapture &&
+          distance(f.hash, g.hash) <= 28 &&
+          ratio > 0.7 &&
+          ratio < 1.4 &&
+          Math.hypot(
+            p.x + p.width / 2 - q.x - q.width / 2,
+            p.y + p.height / 2 - q.y - q.height / 2,
+          ) < 0.08)) &&
       ratio > 0.55 &&
       ratio < 1.8 &&
       Math.hypot(
@@ -107,6 +150,47 @@ export function portraitPair(a, b) {
     (distance(a.hash, b.hash) <= 12 &&
       x.every((f, i) => distance(f.hash, y[i].hash) <= 10)) ||
     orbAgreement(a.analysis.portrait.orb, b.analysis.portrait.orb) >= 0.3
+  );
+}
+// Detector counts/order can fluctuate for overlapping face candidates. A strong
+// short-range scene match can still make a review stack, without asserting all
+// faces correspond or automatically excluding the uncertain alternatives.
+export function scenePair(a, b) {
+  if (
+    !usablePortrait(a) ||
+    !usablePortrait(b) ||
+    !Number.isFinite(a.metadata?.capturedAt) ||
+    !Number.isFinite(b.metadata?.capturedAt) ||
+    Math.abs(a.metadata.capturedAt - b.metadata.capturedAt) > 2500 ||
+    distance(a.hash, b.hash) > 12
+  )
+    return false;
+  const x = a.analysis.sourceDimensions,
+    y = b.analysis.sourceDimensions;
+  if (
+    !x ||
+    !y ||
+    Math.abs(x.width / x.height - y.width / y.height) > 0.08 ||
+    orbAgreement(a.analysis.portrait.orb, b.analysis.portrait.orb) < 0.5
+  )
+    return false;
+  return a.analysis.portrait.faces.some((f) =>
+    b.analysis.portrait.faces.some((g) => {
+      const p = f.box,
+        q = g.box,
+        ratio = f.area / g.area;
+      return (
+        f.hash &&
+        g.hash &&
+        distance(f.hash, g.hash) <= 28 &&
+        ratio > 0.55 &&
+        ratio < 1.8 &&
+        Math.hypot(
+          p.x + p.width / 2 - q.x - q.width / 2,
+          p.y + p.height / 2 - q.y - q.height / 2,
+        ) < 0.12
+      );
+    }),
   );
 }
 export function cluster(groups, { portrait = false } = {}) {
@@ -137,7 +221,8 @@ export function cluster(groups, { portrait = false } = {}) {
                     distance(group.hash, other.hash) <= 6) ||
                     (portrait &&
                       Math.abs(time - other.metadata.capturedAt) <= 12000 &&
-                      portraitPair(group, other))))),
+                      (portraitPair(group, other) ||
+                        scenePair(group, other)))))),
           ),
       );
     if (match) match.push(group);

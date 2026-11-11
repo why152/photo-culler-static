@@ -20,6 +20,9 @@ if (!process.argv[2])
   );
 const source = resolve(process.argv[2]);
 const port = process.env.PORT ?? "4178";
+const expectedBurst = (process.env.CULLER_EXPECT_BURST ?? "")
+  .split(",")
+  .filter(Boolean);
 const samplePath = process.env.CULLER_SAMPLE_MANIFEST;
 const sample = samplePath
   ? JSON.parse(await readFile(samplePath, "utf8"))
@@ -407,7 +410,7 @@ try {
       ).length,
     };
     assert.equal(report.analysis.cached, report.expected.imageGroups);
-    assert.ok(report.analysis.cards <= 60);
+    assert.ok(report.analysis.cards <= 160);
     await page.locator(".card img").first().click();
     // A collapsed stack opens its members first; a member then opens the viewer.
     if (!(await page.locator("#compare").isVisible()))
@@ -567,6 +570,34 @@ try {
         })),
       };
     }, fixtureFiles);
+    if (expectedBurst.length) {
+      const targets = report.export.groups.filter((g) =>
+        expectedBurst.includes(g.id.slice("group:".length)),
+      );
+      assert.equal(
+        targets.length,
+        expectedBurst.length,
+        "Expected burst source missing",
+      );
+      assert.equal(
+        new Set(targets.map((g) => g.groupId)).size,
+        1,
+        "Near-identical examples were split",
+      );
+      const members = report.export.groups.filter(
+        (g) => g.groupId === targets[0].groupId,
+      );
+      assert.equal(
+        members.filter((g) => g.decision === "include").length,
+        1,
+        "Expected one automatic representative",
+      );
+      report.expectedBurst = {
+        matched: targets.length,
+        groupMembers: members.length,
+        selected: 1,
+      };
+    }
     const warmStart = performance.now();
     await page.reload();
     await page.locator("#sessions button").first().click();
