@@ -30,10 +30,12 @@ import { ReviewDecisionHistory } from "./modules/review-persistence.js";
 import { installBenchmark } from "./modules/cull-benchmark-ui.js";
 import { installReviewEffort } from "./modules/review-effort-ui.js";
 import { ViewerZoom } from "./modules/viewer-zoom.js";
+import { PreviewUrlPool } from "./modules/preview-url-pool.js";
 const $ = (id) => document.getElementById(id);
 const store = new BrowserReviewStore();
 let portraitScope = null;
 const expandedBatches = new Set();
+const pendingDecisions = new Set();
 // Portrait evidence is automatic. The hidden control preserves existing module contracts.
 $("portrait").checked = true;
 $("filter").value = "all";
@@ -101,7 +103,7 @@ let visibleCount = 0;
 let viewerFullscreen = false;
 let decisionHistory = new ReviewDecisionHistory();
 const chosen = new Set(),
-  urls = new Set(),
+  gridPreviews = new PreviewUrlPool(),
   comparisonUrls = new Set();
 const message = (text) => {
   $("feedback").textContent = text;
@@ -131,6 +133,7 @@ function setBusy(value) {
   $("strength").disabled = value;
   $("portrait").disabled = value;
   $("portrait-keep").disabled = value;
+  updateSelectionControls();
   $("output-layout").disabled = value;
   $("include-protected").disabled = value;
   $("target").disabled = value;
@@ -140,16 +143,15 @@ function setBusy(value) {
     .forEach((b) => (b.disabled = value));
 }
 function release() {
-  for (const url of urls) URL.revokeObjectURL(url);
-  urls.clear();
+  gridPreviews.clear();
 }
 function releaseComparison() {
   for (const value of comparisonUrls) URL.revokeObjectURL(value);
   comparisonUrls.clear();
 }
-function url(blob, comparison = false) {
+function url(blob) {
   const result = URL.createObjectURL(blob);
-  (comparison ? comparisonUrls : urls).add(result);
+  comparisonUrls.add(result);
   return result;
 }
 function save() {
@@ -450,7 +452,9 @@ function state(group) {
   return outputDecision(human[group.id], recommendations[group.id]);
 }
 async function decide(group, decision, favorite = false) {
-  if (busy) return;
+  if (busy || pendingDecisions.has(group)) return;
+  pendingDecisions.add(group);
+  updateSelectionControls();
   const decisionSession = session?.id;
   const decisionContext = groups;
   try {
@@ -471,6 +475,9 @@ async function decide(group, decision, favorite = false) {
     render();
   } catch (e) {
     message("无法保存决定：" + e.message);
+  } finally {
+    pendingDecisions.delete(group);
+    updateSelectionControls();
   }
 }
 function button(text, action, selected = false) {
@@ -480,6 +487,93 @@ function button(text, action, selected = false) {
   b.onclick = action;
   if (selected) b.className = "selected";
   return b;
+}
+function selectionIcon() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(svg.namespaceURI, "path");
+  path.setAttribute("d", "M6 12.5 10 16.5 18 7.5");
+  svg.append(path);
+  return svg;
+}
+function setSelectionControl(control, group) {
+  const selected = state(group) === "include";
+  control.dataset.photoSelect = group.id;
+  control.setAttribute("aria-pressed", String(selected));
+  control.setAttribute(
+    "aria-label",
+    `${selected ? "取消选择" : "选择"} ${group.path}`,
+  );
+  control.title = selected ? "取消选择" : "选择";
+  control.disabled = busy || pendingDecisions.has(group);
+  control.setAttribute("aria-busy", String(pendingDecisions.has(group)));
+  const label = control.querySelector(".selection-label");
+  if (label) label.textContent = selected ? "已选" : "选择";
+}
+function updateSelectionControls() {
+  for (const control of document.querySelectorAll("[data-photo-select]")) {
+    const group = groups.find((g) => g.id === control.dataset.photoSelect);
+    if (group) setSelectionControl(control, group);
+  }
+}
+async function togglePhoto(group, restoreFocus = true) {
+  if (busy || pendingDecisions.has(group)) return;
+  const context = groups;
+  const focusOrigin = document.activeElement;
+  const batchKey = [...document.querySelectorAll("#grid .card")].find(
+    (card) => card.dataset.groupId === group.id,
+  )?.dataset.batchKey;
+  await decide(group, state(group) === "include" ? "exclude" : "keep", false);
+  const focusFree = [document.body, $("compare"), focusOrigin].includes(
+    document.activeElement,
+  );
+  if (
+    !restoreFocus &&
+    context === groups &&
+    $("compare").open &&
+    compared[0] === group &&
+    focusOrigin === $("viewer-select") &&
+    focusFree
+  )
+    $("viewer-select").focus({ preventScroll: true });
+  if (restoreFocus && context === groups && !$("compare").open && focusFree) {
+    const replacement = [
+      ...document.querySelectorAll("#grid [data-photo-select]"),
+    ].find((b) => b.dataset.photoSelect === group.id);
+    const peer =
+      batchKey &&
+      [...document.querySelectorAll("#grid .card")]
+        .find((card) => card.dataset.batchKey === batchKey)
+        ?.querySelector("[data-photo-select]");
+    (replacement ?? peer ?? $("gallery-summary")).focus({
+      preventScroll: true,
+    });
+  }
+}
+function toggleBatch(row, visible) {
+  if (expandedBatches.has(row.key)) expandedBatches.delete(row.key);
+  else expandedBatches.add(row.key);
+  const nextRows = galleryRows(
+    visible,
+    batches,
+    recommendations,
+    state,
+    expandedBatches,
+  );
+  const index = nextRows.findIndex((r) => r.key === row.key);
+  if (
+    index < offset ||
+    index >= offset + limit ||
+    (expandedBatches.has(row.key) && index + row.batch.length > offset + limit)
+  )
+    offset = Math.max(0, index);
+  render();
+  const focused = [...document.querySelectorAll(".batch-toggle")].find(
+    (b) => b.dataset.batchKey === row.key,
+  );
+  focused?.focus({ preventScroll: true });
+  focused?.closest(".batch-bar, article").scrollIntoView({ block: "nearest" });
 }
 function render() {
   const stats = { include: 0, protected: 0, suppress: 0, unprocessed: 0 };
@@ -530,11 +624,13 @@ function render() {
       : visible.map((group) => ({ group }));
   visibleCount = rows.length;
   if (offset >= visibleCount) offset = 0;
-  // Bound DOM and active URLs. Revoke old previews before rebuilding a page.
-  release();
+  // Reuse the existing URL pool so choices do not reload unchanged photos.
+  // Retain only this bounded page; release departed photos immediately.
+  const pageRows = rows.slice(offset, offset + limit);
+  gridPreviews.retain(pageRows.map((row) => row.group.id));
   effortController?.resetGrid();
   $("grid").replaceChildren();
-  for (const row of rows.slice(offset, offset + limit)) {
+  for (const row of pageRows) {
     const g = row.group;
     const card = document.createElement("article");
     card.className = "card";
@@ -555,16 +651,38 @@ function render() {
       else chosen.delete(g.id);
     };
     card.append(box);
+    const media = document.createElement("div");
+    media.className = "photo-media";
+    card.append(media);
+    if (row.batch) {
+      card.dataset.batchKey = row.key;
+      card.dataset.batchExpanded = String(row.expanded);
+    }
+    if (row.toggle && !row.expanded) card.classList.add("photo-stack");
     if (g.analysis?.thumbnail) {
       const img = document.createElement("img");
-      img.src = url(g.analysis.thumbnail);
+      img.src = gridPreviews.urlFor(g.id, g.analysis.thumbnail);
       img.alt = g.path;
-      img.onclick = () => void compare([g]);
+      const openPhoto = () =>
+        row.toggle && !row.expanded
+          ? toggleBatch(row, visible)
+          : void compare([g]);
+      img.onclick = openPhoto;
+      img.setAttribute("role", "button");
+      img.setAttribute(
+        "aria-label",
+        row.toggle && !row.expanded
+          ? `查看这组 ${row.batch.length} 张`
+          : `查看 ${g.path}`,
+      );
       img.tabIndex = 0;
       img.onkeydown = (e) => {
-        if (e.key === "Enter") void compare([g]);
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openPhoto();
+        }
       };
-      card.append(img);
+      media.append(img);
     } else {
       const placeholder = document.createElement("div");
       placeholder.className = "media-placeholder";
@@ -577,10 +695,17 @@ function render() {
             )
           ? "RAW"
           : "无法预览";
-      card.append(placeholder);
+      media.append(placeholder);
     }
+    const selection = button("", () => void togglePhoto(g));
+    selection.className = "photo-select simple-control";
+    selection.append(selectionIcon());
+    setSelectionControl(selection, g);
+    media.append(selection);
     const name = document.createElement("p");
+    name.className = "photo-name";
     name.textContent = g.path;
+    name.title = g.path;
     const memberCount = document.createElement("small");
     memberCount.className = "advanced-control";
     memberCount.textContent = " · " + g.members.length + " 个原始文件";
@@ -591,11 +716,14 @@ function render() {
     detail.className = "recommendation-detail advanced-control";
     const status = document.createElement("p");
     status.className = "simple-card-status";
-    status.textContent = {
-      include: human[g.id]?.decision === "keep" ? "✓ 已选" : "✓ 自动选中",
-      protected: "待复核",
-      suppress: human[g.id]?.decision === "exclude" ? "未选" : "自动未选",
-    }[state(g)];
+    const manual =
+      human[g.id]?.favorite ||
+      ["keep", "exclude", "review_later"].includes(human[g.id]?.decision);
+    card.dataset.origin = manual ? "manual" : "auto";
+    status.textContent =
+      state(g) === "protected" ? "待复核" : manual ? "手动" : "自动";
+    status.title = `${manual ? "手动" : "自动"}${state(g) === "include" ? "已选" : state(g) === "suppress" ? "未选" : "待复核"}`;
+    status.setAttribute("aria-label", status.title);
     const portrait = g.analysis?.portrait;
     if (portrait?.faces?.length) {
       const faceStatus = document.createElement("p");
@@ -659,47 +787,32 @@ function render() {
       button("恢复机器建议", () => void decide(g, "unreviewed")),
     );
     const actions = [...card.querySelectorAll("button")];
-    for (const i of [0, 1, 4, 5]) actions[i].classList.add("advanced-control");
+    // The overlay toggle is separate from advanced review/compare controls.
+    for (const action of actions)
+      if (action !== selection) action.classList.add("advanced-control");
     if (row.toggle) {
       const toggle = button(
-        row.expanded ? "收起这组" : `展开 ${row.batch.length} 张`,
-        () => {
-          if (expandedBatches.has(row.key)) expandedBatches.delete(row.key);
-          else expandedBatches.add(row.key);
-          // Keep the clicked group in view, including after the first page.
-          const nextRows = galleryRows(
-            visible,
-            batches,
-            recommendations,
-            state,
-            expandedBatches,
-          );
-          const index = nextRows.findIndex((r) => r.key === row.key);
-          if (
-            index < offset ||
-            index >= offset + limit ||
-            (expandedBatches.has(row.key) &&
-              index + row.batch.length > offset + limit)
-          )
-            offset = Math.max(0, index);
-          render();
-          const focused = [...document.querySelectorAll(".batch-toggle")].find(
-            (b) => b.dataset.batchKey === row.key,
-          );
-          focused?.focus({ preventScroll: true });
-          focused?.closest("article").scrollIntoView({ block: "nearest" });
-        },
+        row.expanded ? "收起" : `${row.batch.length} 张`,
+        () => toggleBatch(row, visible),
       );
       toggle.className = "batch-toggle";
       toggle.dataset.batchKey = row.key;
       toggle.setAttribute("aria-expanded", String(row.expanded));
-      const count = document.createElement("span");
-      count.className = "batch-count";
-      const pending = row.batch.filter((g) => state(g) === "protected").length;
-      count.textContent =
-        `${row.batch.length} 张 · 已选 ${row.batch.filter((g) => state(g) === "include").length}` +
-        (pending ? ` · 待复核 ${pending}` : "");
-      card.append(count, toggle);
+      toggle.setAttribute(
+        "aria-label",
+        row.expanded ? "收起这组" : `展开 ${row.batch.length} 张`,
+      );
+      if (row.expanded) {
+        const bar = document.createElement("div");
+        bar.className = "batch-bar";
+        const label = document.createElement("span");
+        label.textContent = `${row.batch.length} 张 · 已选 ${row.batch.filter((x) => state(x) === "include").length}`;
+        bar.append(label, toggle);
+        $("grid").append(bar);
+      } else {
+        toggle.title = `${row.batch.length} 张 · 已选 ${row.batch.filter((x) => state(x) === "include").length}`;
+        media.append(toggle);
+      }
     }
     if (m?.portraitBatch && moreTools)
       card.append(
@@ -714,11 +827,17 @@ function render() {
         }),
       );
     $("grid").append(card);
+    if (row.expanded && row.last) {
+      const end = document.createElement("div");
+      end.className = "batch-end";
+      end.setAttribute("aria-hidden", "true");
+      $("grid").append(end);
+    }
     effortController?.observeGrid(card, g.id);
   }
   $("more").hidden = rows.length <= limit;
   $("more").textContent =
-    offset + limit < visible.length ? "下一页 60 组" : "回到第一页";
+    offset + limit < rows.length ? "下一页 60 组" : "回到第一页";
   renderPlan();
   updateViewerActions();
 }
@@ -769,7 +888,7 @@ function renderPlan() {
   const organized = preview.layout === "organized";
   $("include-protected-label").hidden = organized;
   $("organization-note").textContent = organized
-    ? "已选、待复核、未选。复制到新文件夹，原件保留。"
+    ? "复制到新文件夹，原件保留。"
     : "仅复制已选照片，原件保留。";
   $("copy").textContent = organized ? "整理到此文件夹" : "复制已选照片";
   $("copy").hidden = !moreTools && !target;
@@ -807,6 +926,30 @@ function renderPlan() {
   exportAccept.textContent = moreTools ? "接受当前输出计划" : "确认当前选择";
   exportUndo.disabled = busy || !accepted;
   if (!plan) return;
+  $("plan").hidden = !moreTools && organized;
+  $("organization-preview").hidden = !organized;
+  $("organization-total").hidden = !organized;
+  $("organization-preview").replaceChildren();
+  if (organized) {
+    for (const [decision, label] of [
+      ["include", "已选"],
+      ["protected", "待复核"],
+      ["suppress", "未选"],
+    ]) {
+      const item = document.createElement("div");
+      item.setAttribute("role", "listitem");
+      const count = document.createElement("strong");
+      count.textContent = plan.groups.filter(
+        (g) => g.decision === decision,
+      ).length;
+      const name = document.createElement("span");
+      name.textContent = label;
+      item.append(count, name);
+      $("organization-preview").append(item);
+    }
+    $("organization-total").textContent =
+      `${plan.fileCount} 个文件 · ${(plan.bytes / 1024 / 1024).toFixed(1)} MB`;
+  }
   $("plan").textContent = moreTools
     ? plan.groupCount +
       " 照片组 / " +
@@ -899,7 +1042,7 @@ async function compare(list) {
     frame.append(caption);
     $("compare-images").append(frame);
     const blob = g.analysis?.thumbnail;
-    if (blob) img.src = url(blob, true);
+    if (blob) img.src = url(blob);
     const file = await g.source.handle.getFile();
     const { decodeBitmap } = await import("./modules/photo-analysis-worker.js");
     let bitmap,
@@ -918,7 +1061,7 @@ async function compare(list) {
         canvas.toBlob(resolve, "image/jpeg", 0.92),
       );
       if (generation !== compareGeneration) break;
-      img.src = url(preview, true);
+      img.src = url(preview);
     } catch (e) {
       message("比较预览降级：" + e.message);
     } finally {
@@ -967,19 +1110,36 @@ function updateViewerActions() {
   const index = groups.indexOf(g);
   $("viewer-prev").disabled = busy || index <= 0;
   $("viewer-next").disabled = busy || index >= groups.length - 1;
-  $("viewer-keep").disabled = busy;
-  $("viewer-exclude").disabled = busy;
+  $("viewer-keep").disabled = busy || pendingDecisions.has(g);
+  $("viewer-exclude").disabled = busy || pendingDecisions.has(g);
+  setSelectionControl($("viewer-select"), g);
   $("viewer-exclude").textContent = moreTools ? "暂不导出" : "不选";
-  $("viewer-decision").textContent = {
-    include: moreTools ? "已选入导出" : "已选",
-    suppress: moreTools ? "暂不导出，原件保留" : "未选",
-    protected: moreTools ? "待复核，尚未选入导出" : "待复核",
-  }[state(g)];
+  const manual =
+    human[g.id]?.favorite ||
+    ["keep", "exclude", "review_later"].includes(human[g.id]?.decision);
+  $("viewer-decision").textContent = moreTools
+    ? {
+        include: "已选入导出",
+        suppress: "暂不导出，原件保留",
+        protected: "待复核，尚未选入导出",
+      }[state(g)]
+    : state(g) === "protected"
+      ? "待复核"
+      : manual
+        ? "手动"
+        : "自动";
 }
 function browseViewer(delta) {
   const g = groups[groups.indexOf(compared[0]) + delta];
   if (!busy && g) void compare([g]);
 }
+$("viewer-select").append(selectionIcon());
+const viewerSelectionLabel = document.createElement("span");
+viewerSelectionLabel.className = "selection-label";
+$("viewer-select").append(viewerSelectionLabel);
+$("viewer-select").onclick = () => {
+  if (compared[0]) void togglePhoto(compared[0], false);
+};
 $("viewer-prev").onclick = () => browseViewer(-1);
 $("viewer-next").onclick = () => browseViewer(1);
 $("viewer-keep").onclick = () => {
@@ -1005,7 +1165,6 @@ $("compare").addEventListener("close", () => {
   zooms.length = 0;
   compared = [];
   releaseComparison();
-  release();
   render();
 });
 $("zoom-reset").onclick = () => {
@@ -1025,7 +1184,7 @@ $("zoom-one").onclick = async () => {
         message("内存保护：此组使用 1600px 预览的 1:1；原图像素放大未加载。");
       } else {
         budget -= dimensions.width * dimensions.height * 4;
-        const link = url(item.file, true);
+        const link = url(item.file);
         item.img.src = link;
         await item.img.decode();
         if (generation !== compareGeneration) return;
@@ -1202,11 +1361,13 @@ async function acceptCurrentPlan() {
     $("export-space").scrollIntoView({ block: "start" });
     $("acceptance-status-export").focus({ preventScroll: true });
     message(
-      "已采纳 " +
-        candidate.groupCount +
-        " 组 / " +
-        candidate.fileCount +
-        " 个文件。输出计划已保存；选择目标并确认后才会复制，原件未改变。",
+      !moreTools
+        ? "选择保存位置，确认后开始复制。"
+        : "已采纳 " +
+            candidate.groupCount +
+            " 组 / " +
+            candidate.fileCount +
+            " 个文件。输出计划已保存；选择目标并确认后才会复制，原件未改变。",
     );
   } catch (error) {
     accepted = previous;

@@ -48,6 +48,7 @@ export function galleryRows(
         key,
         expanded: open,
         toggle: i === 0,
+        last: i === shown.length - 1,
         hiddenCount: batch.length - shown.length,
       }),
     );
