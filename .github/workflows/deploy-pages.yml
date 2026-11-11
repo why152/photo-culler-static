@@ -24,7 +24,14 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chrome
+      - name: Prepare Chrome
+        timeout-minutes: 5
+        run: |
+          if command -v google-chrome >/dev/null 2>&1 && google-chrome --version; then
+            echo "Using runner Chrome for the full browser suites"
+          else
+            npx playwright install --with-deps chrome
+          fi
       - run: npm run check
       - run: npm test
       - run: npm run test:dist
