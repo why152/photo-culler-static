@@ -1700,9 +1700,12 @@ test("photo-first stack expands without choosing, keyboard toggles retain focus 
       page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
     )
     .toBe(true);
-  const size = await a.locator(".photo-select").boundingBox();
-  expect(size.width).toBeGreaterThanOrEqual(44);
-  expect(size.height).toBeGreaterThanOrEqual(44);
+  // ResizeObserver rebuilds the row layout asynchronously; measure after the
+  // card is attached and painted, including on slower CI compositors.
+  await expect.poll(async () => {
+    const size = await a.locator(".photo-select").boundingBox();
+    return Boolean(size && size.width >= 44 && size.height >= 44);
+  }).toBe(true);
   await page.locator("#grid img").evaluateAll(imgs=>Promise.all(imgs.map(img=>img.decode())));
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   await page.screenshot({
