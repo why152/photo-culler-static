@@ -113,7 +113,7 @@ test("built root: readonly import, workers, protected formats, comparisons, expo
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
-  await expect(page.locator(".card")).toHaveCount(4);
+  await expect(page.locator(".card")).toHaveCount(1);
   await page.locator("#filter").selectOption("all");
   await expect(page.locator(".card")).toHaveCount(7);
   await expect(page.locator("#global")).toContainText("7 组");
@@ -169,8 +169,9 @@ test("built root: readonly import, workers, protected formats, comparisons, expo
       .first()
       .getByRole("button", { name: "★ 精选", exact: true }),
   ).toBeVisible();
+  await page.locator("#filter").selectOption("all");
+  await page.locator('.card[data-group-id="group:sub/only"]').getByRole("button", { name: "保留", exact: true }).click();
   await page.locator('[data-space="export"]').click();
-  await page.locator("#include-protected").check();
   await page
     .getByRole("button", { name: "接受当前输出计划", exact: true })
     .click();
@@ -248,7 +249,7 @@ test("read directory works without native move support, v1 remains reachable", a
   await expect(page.locator("#choose-folder")).toBeEnabled();
 });
 
-for (const layout of ["keepers", "organized"]) {
+for (const layout of ["keepers", "binary"]) {
   test(`an interrupted ${layout} copy resumes after reload using its saved output without changing source files`, async ({
     page,
   }) => {
@@ -258,9 +259,9 @@ for (const layout of ["keepers", "organized"]) {
     await page.locator("#choose").click();
     await expect(page.locator("#global")).toContainText("本地分析完成");
     await page.locator('[data-space="export"]').click();
-    if (layout === "organized")
-      await page.locator("#output-layout").selectOption("organized");
-    else await page.locator("#include-protected").check();
+    if (layout === "binary")
+      await page.locator("#output-layout").selectOption("binary");
+
     await page
       .getByRole("button", { name: "接受当前输出计划", exact: true })
       .click();
@@ -272,7 +273,7 @@ for (const layout of ["keepers", "organized"]) {
         name,
         options,
       ) {
-        if (name === (layout === "organized" ? "已选" : "Keepers") && fail) {
+        if (name === (layout === "binary" ? "已选" : "Keepers") && fail) {
           fail = false;
           return Promise.reject(
             new DOMException("simulated disk full", "QuotaExceededError"),
@@ -359,7 +360,7 @@ test("accept saves the exact plan, undo gates copy, changes invalidate it, and r
   await page
     .getByRole("button", { name: "接受当前输出计划", exact: true })
     .click();
-  await page.locator("#include-protected").check();
+  await page.locator("#output-layout").selectOption("binary");
   await expect(page.locator("#copy")).toBeDisabled();
   await expect(page.locator("#acceptance-status-export")).toContainText(
     "尚未采纳",
@@ -728,9 +729,14 @@ test("actual resized, recompressed and cropped image versions remain safe, origi
       detail: card.querySelector(".recommendation-detail").textContent,
     })),
   );
-  expect(states.every((s) => !s.detail.startsWith("暂不导出"))).toBe(true);
+  // Uncertain edits/panoramas are unchecked now, but their diagnostic machine
+  // evidence must remain protected, not silently converted into exclusions.
   expect(states.some((s) => s.detail.includes("疑似同图版本"))).toBe(true);
-  expect(states.find((s) => s.name === "panorama").detail).toContain("待复核");
+  expect(states.find((s) => s.name === "panorama").detail).toContain("暂不导出");
+  await page.locator("#accept").click();
+  await expect(page.locator("#acceptance-status-export")).toContainText("已采纳");
+  const protectedPlan = await readStudySession(page);
+  expect(protectedPlan.acceptedPlan.plan.groups.every(g => g.machine?.plan !== "suppress")).toBe(true);
   const dimensions = await page.evaluate(async () => {
     const db = await new Promise((r) => {
       const q = indexedDB.open("photo-culler-local");
@@ -1252,7 +1258,7 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
   await expect(page.locator("#accept")).toHaveText("整理照片");
-  await expect(page.locator("#simple-result-guide")).toContainText("暂不选入");
+  await expect(page.locator("#simple-result-guide")).toContainText("未选 6 组");
   await expect(page.locator("#effort-open")).not.toBeVisible();
   await expect(
     page.locator(".card").first().locator(".photo-select"),
@@ -1301,13 +1307,14 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
     fullPage: true,
   });
   await expect(page.locator("#copy")).toBeDisabled();
-  await page.locator("#include-protected").check();
+  await page.locator("#tools-toggle").click();
+  await page.locator("#output-layout").selectOption("binary");
+  await page.locator("#tools-toggle").click();
   await page.getByRole("button", { name: "确认当前选择", exact: true }).click();
   await expect(page.locator("#acceptance-status-export")).toContainText(
     "已采纳",
   );
   await page.locator("#target").click();
-  await page.locator("#copy").click();
   await expect(page.locator("#confirm-text")).toContainText("原件只读");
   await page.locator("#confirm-cancel").click();
   expect(
@@ -1395,7 +1402,7 @@ test("portrait analysis is automatic, self-hosted and versioned without changing
   await page.locator("[data-space=import]").click();
   await expect(page.locator("#portrait")).toBeChecked();
   await page.locator("[data-space=export]").click();
-  await page.locator("#output-layout").selectOption("organized");
+  await page.locator("#output-layout").selectOption("binary");
   await expect(page.locator("#acceptance-status-export")).toContainText(
     "尚未采纳",
   );
@@ -1481,12 +1488,12 @@ test("fresh automatic workflow shows expandable groups and organizes all choices
   });
   await page.locator("#accept").click();
   await expect(page.locator("#plan")).toContainText(
-    "已选 1 · 待复核 3 · 未选 3",
+    "已选 1 · 未选 6",
   );
   await expect(page.locator("#include-protected")).not.toBeVisible();
   await page.locator("#target").click();
   await expect(page.locator("#confirm-text")).toContainText(
-    "按已选、待复核、未选分组复制",
+    "按已选、未选分组复制",
   );
   expect(
     await page.evaluate(
@@ -1506,7 +1513,7 @@ test("fresh automatic workflow shows expandable groups and organizes all choices
       ).text(),
     );
   });
-  expect(report.layout).toBe("organized");
+  expect(report.layout).toBe("binary");
   expect(report.records).toHaveLength(9);
   expect(new Set(report.records.map((r) => r.source)).size).toBe(9);
   expect(report.records.every((r) => r.sourceSHA === r.destinationSHA)).toBe(
@@ -1520,7 +1527,7 @@ test("fresh automatic workflow shows expandable groups and organizes all choices
   );
   expect(
     report.records.find((r) => r.source === "sub/only.rw2").destination,
-  ).toBe("待复核/sub/only.rw2");
+  ).toBe("未选/sub/only.rw2");
   expect(await snapshot()).toEqual(before);
   await page.reload();
   await page.locator("#sessions button").first().click();
@@ -1574,7 +1581,7 @@ test("individual photos are screened automatically and remain manually selectabl
   const clear = page.locator('.card[data-group-id="group:clear"]');
   const dark = page.locator('.card[data-group-id="group:dark"]');
   await expect(clear).toHaveAttribute("data-decision", "include");
-  await expect(dark).toHaveAttribute("data-decision", "protected");
+  await expect(dark).toHaveAttribute("data-decision", "suppress");
   await dark.locator(".photo-select").click();
   await expect(dark).toHaveAttribute("data-decision", "include");
   await clear.locator(".photo-select").click();
@@ -1686,7 +1693,7 @@ test("photo-first stack expands without choosing, keyboard toggles retain focus 
   await expect(page.locator("#organization-preview")).toBeVisible();
   await expect(
     page.locator("#organization-preview [role=listitem]"),
-  ).toHaveCount(3);
+  ).toHaveCount(2);
   await expect(page.locator("#plan")).not.toBeVisible();
   await expect(page.locator("#organization-note")).toContainText("原件保留");
   await page.screenshot({
@@ -1986,4 +1993,48 @@ test("quantity preserves manual choices, keyboard saves then advances, Shift ran
   await expect(page.locator("#feedback")).toContainText("无法保存决定");
   await expect(page.locator("#viewer-select")).toHaveAttribute("data-photo-select","group:Range6");
   await expect(page.locator("#viewer-select")).toHaveAttribute("aria-pressed","true");
+});
+
+test("old review-later and three-folder preferences become unchecked two-state choices without losing labels", async ({ page }) => {
+  await page.goto("./");await fixture(page,{legacy:false});await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.evaluate(async () => {
+    const db=await new Promise(resolve=>{const r=indexedDB.open("photo-culler-local");r.onsuccess=()=>resolve(r.result);});
+    const all=name=>new Promise(resolve=>{const r=db.transaction(name).objectStore(name).getAll();r.onsuccess=()=>resolve(r.result);});
+    const s=(await all("cull-sessions"))[0],cache=await all("analysis");
+    const record=cache.find(r=>r.analysis.fingerprint.includes('"A.jpg"')).analysis;
+    const tx=db.transaction("cull-sessions","readwrite");tx.objectStore("cull-sessions").put({...s,
+      human:{...s.human,"group:A":{decision:"review_later",favorite:false,fingerprint:record.fingerprint,sourceSHA:record.sourceSHA}},
+      preferences:{...s.preferences,outputLayout:"organized",includeProtected:true}},s.id);
+    await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});db.close();
+  });
+  await page.reload();await page.locator("#sessions button").first().click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await expect(page.locator("#gallery-summary")).toContainText("未选");
+  await expect(page.locator("#gallery-summary")).not.toContainText("待复核");
+  const a=page.locator('.card[data-group-id="group:A"]');
+  // Its former pending label is not an automatic selection, nor discarded.
+  const before=await readStudySession(page);expect(before.human["group:A"].decision).toBe("review_later");
+  expect(before.preferences.outputLayout).toBe("binary");
+  await expect(page.locator("#include-protected")).not.toBeChecked();
+  await expect(page.getByRole("button",{name:"稍后复核",exact:true})).toHaveCount(0);
+  await page.locator('[data-gallery-filter="shortlist"]').click();
+  await expect(a).toHaveCount(0);
+  await page.locator('[data-gallery-filter="all"]').click();
+  // Opening a protected stack may expose a representative other than A.
+  const stack=page.getByRole("button",{name:"展开 4 张",exact:true});
+  if(await stack.count()) await stack.first().click();
+  await expect(a.locator(".photo-select")).toHaveAttribute("aria-pressed","false");
+  await a.getByRole("button", { name: "查看 A", exact: true }).click();
+  await page.keyboard.press("3");
+  await expect(page.locator("#viewer-select")).toHaveAttribute("data-photo-select", "group:A");
+  await expect(page.locator("#viewer-select")).toHaveAttribute("aria-pressed", "false");
+  await page.keyboard.press("Escape");
+  await a.locator(".photo-select").click();
+  await expect(a.locator(".photo-select")).toHaveAttribute("aria-pressed","true");
+  await page.locator("#accept").click();
+  await expect(page.locator("#organization-preview [role=listitem]")).toHaveCount(2);
+  await expect(page.locator("#organization-preview")).toContainText("已选");
+  await expect(page.locator("#organization-preview")).toContainText("未选");
+  await expect(page.locator("#organization-preview")).not.toContainText("待复核");
 });

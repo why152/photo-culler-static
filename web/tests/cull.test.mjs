@@ -439,3 +439,29 @@ test("organized copy refuses same-size same-time content changes since analysis"
   await assert.rejects(copyPlan(plan, output), /来源内容已更改/);
   assert.equal(output.dirs.has("已选"), false);
 });
+
+test("binary selection leaves uncertainty unchecked, copies companions to two folders and resumes safely", async () => {
+  const groups = ["a", "b", "c"].map((id, i) => ({
+    ...g(id, i, "0000"), fingerprint: id,
+    members: ["jpg", "rw2", "xmp"].map(ext => ({ path: `sub/${id}.${ext}`, size: 3, lastModified: 1, handle: file(`${id}.${ext}`) })),
+  }));
+  const machine = { a: { plan: "include" }, b: { plan: "protected" }, c: { plan: "protected" } };
+  const human = { b: { decision: "review_later" }, c: { decision: "keep" } };
+  const plan = exportPlan(groups, human, machine, false, { organize: true, binary: true });
+  assert.equal(plan.layout, "binary");
+  assert.deepEqual(plan.groups.map(g => g.decision), ["include", "suppress", "include"]);
+  assert.equal(plan.groups[1].machine.plan, "protected");
+  assert.equal(plan.groups[1].human.decision, "review_later");
+  assert.equal(plan.fileCount, 9);
+  assert.deepEqual([...new Set(plan.records.map(r => r.destination.split('/')[0]))].sort(), ["已选", "未选"]);
+  assert.ok(plan.records.filter(r => r.groupId === "b").every(r => r.destination.startsWith("未选/")));
+  const output = outputDir(); await copyPlan(plan, output);
+  const resumed = resumePlan(publicManifest(plan), groups); await copyPlan(resumed, output);
+  assert.ok(resumed.records.every(r => r.sourceSHA === r.destinationSHA));
+  assert.equal(output.dirs.get("未选").dirs.get("sub").writes, 3);
+  const tampered = publicManifest(plan); tampered.groups = structuredClone(tampered.groups);
+  tampered.groups[1].decision = "protected";
+  assert.throws(() => resumePlan(tampered, groups), /无效/);
+  const selectedOnly = exportPlan(groups, human, machine, true, { binary: true });
+  assert.equal(selectedOnly.fileCount, 6); // Old includeProtected cannot select an unchecked group.
+});
