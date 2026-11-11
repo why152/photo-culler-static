@@ -73,10 +73,14 @@
     </script>
   </head>
   <body data-tools="simple">
-    <header>
-      <a href="./">Photo Culler</a><span class="badge">2.0 Beta</span
+    <header id="app-header">
+      <a href="./">Photo Culler</a
+      ><span class="badge advanced-control">2.0 Beta</span
       ><span>原件始终保留 · 照片不上传</span
       ><a class="advanced-control" href="./legacy.html">1.0 图库与历史恢复</a>
+      <div id="gallery-actions">
+        <button id="tools-toggle" aria-expanded="false">设置</button>
+      </div>
     </header>
     <main>
       <nav aria-label="工作区">
@@ -84,15 +88,35 @@
         ><button data-space="results">② 看推荐</button
         ><button data-space="export">③ 导出副本</button>
       </nav>
-      <button id="tools-toggle" aria-expanded="false">更多工具</button>
       <p id="global" role="status">
         先选照片文件夹，剩下交给自动筛选。原件不会改动。
       </p>
       <section id="import-space">
-        <h1>先选文件夹，自动帮你挑。</h1>
-        <p>选好文件夹后，等待分析完成，再查看推荐并导出副本。照片不会上传。</p>
-        <button id="choose">选择照片文件夹</button
-        ><label class="advanced-control"
+        <h1>开始筛选照片</h1>
+        <p class="entry-intro">选择文件夹，自动挑出好照片。</p>
+        <div class="portrait-option" hidden>
+          <label
+            ><input
+              id="portrait"
+              type="checkbox"
+              checked
+            />自动挑选人物连拍</label
+          >
+          <label id="portrait-budget" class="advanced-control" hidden
+            >每组推荐
+            <select id="portrait-keep">
+              <option value="1" selected>1 张</option>
+              <option value="2">2 张</option>
+              <option value="3">3 张</option>
+            </select>
+          </label>
+          <p id="portrait-note" class="advanced-control">
+            可选：分析睁眼和脸部清晰度，同场景连拍只推荐少量候选。启用时从本站加载约
+            4 MB 模型，不上传照片；小脸、侧脸和表情仍需复核。
+          </p>
+        </div>
+        <span id="choose-home"></span><button id="choose">选择照片文件夹</button
+        ><label hidden
           >模式
           <select id="mode">
             <option class="advanced-control" value="burst">
@@ -113,7 +137,7 @@
           <p>2. 看推荐<br /><small>想改选时，点照片放大查看</small></p>
           <p>3. 导出副本<br /><small>另选文件夹，确认后开始复制</small></p>
         </div>
-        <h2>最近工作会话</h2>
+        <h2 id="sessions-title">最近打开</h2>
         <div id="sessions"></div>
       </section>
       <section id="results-space" hidden>
@@ -121,16 +145,25 @@
         <p id="simple-result-guide">
           可以直接采用推荐，也可以点击照片放大；想改选时点“保留”或“暂不导出”。
         </p>
+        <p id="gallery-summary"></p>
         <div id="stats" class="stats"></div>
         <div class="toolbar">
           <button id="accept">接受整批推荐</button
           ><button id="undo-accept" class="advanced-control">
-            取消本批采纳</button
-          ><label
+            取消本批采纳
+          </button>
+          <div id="gallery-filters">
+            <button data-gallery-filter="shortlist" aria-pressed="false">
+              推荐与待复核</button
+            ><button data-gallery-filter="all" aria-pressed="true">
+              全部照片
+            </button>
+          </div>
+          <label class="advanced-control"
             >显示
             <select id="filter">
               <option value="shortlist">推荐与待复核</option>
-              <option value="all">全部照片</option>
+              <option value="all" selected>全部照片</option>
               <option value="suppress">暂不导出</option>
               <option class="advanced-control" value="favorite">★精选</option>
               <option class="advanced-control" value="burst">连拍组</option>
@@ -142,15 +175,25 @@
           勾选 2–4 张比较；点击图片单图查看。J/K 前后浏览，1 精选，Esc
           关闭。低置信候选需要人工复核。
         </p>
+        <p id="portrait-scope" hidden>
+          <span id="portrait-scope-text"></span>
+          <button id="portrait-scope-close">返回全部照片</button>
+        </p>
         <div id="grid" class="grid"></div>
         <button id="more" hidden>再显示 60 组</button>
       </section>
       <section id="export-space" hidden>
-        <h1>最后一步：选一个保存位置。</h1>
-        <p>
-          导出的照片会放进新文件夹。源文件夹里的所有原件都保留，不会移动或删除。
-        </p>
-        <label
+        <button id="gallery-back">← 返回照片</button>
+        <h1>整理照片</h1>
+        <p id="organization-note">按选择分到三个文件夹，原件保留。</p>
+        <label class="advanced-control"
+          >输出方式
+          <select id="output-layout">
+            <option value="organized" selected>分组整理全部照片</option>
+            <option value="keepers">仅复制已选照片</option>
+          </select>
+        </label>
+        <label id="include-protected-label"
           ><input
             id="include-protected"
             type="checkbox"
@@ -169,7 +212,7 @@
         >
           移入待排除区（可恢复）：当前不可用
         </button>
-        <details>
+        <details class="advanced-control">
           <summary>未分析、异常与跳过目录</summary>
           <pre id="unprocessed"></pre>
         </details>
@@ -177,31 +220,40 @@
       <p id="feedback" role="status" aria-live="polite"></p>
       <button id="cancel" hidden>取消当前操作</button
       ><button id="pause" hidden>暂停</button>
-      <details>
+      <details class="advanced-control">
         <summary>帮助、隐私与验收限制</summary>
         <p>
           JPEG/PNG/WebP 可分析；HEIC 取决于浏览器。RAW
-          不解码。没有可靠拍摄时间只进行精确重复候选判断。夜景、曝光包围、低清晰度和未知格式保守保留。规则排序只比较同组，不判艺术价值。模型增强关闭：尚未验证
-          MediaPipe 无遥测，尚无验证通过的小型 embedding 模型。
+          不解码。没有可靠拍摄时间只进行精确重复候选判断。夜景、曝光包围、低清晰度和未知格式保守保留。规则排序只比较同组，不判艺术价值。人物分析自动进行：只从本站加载
+          TensorFlow.js/WASM 模型，不使用 MediaPipe SDK、不上传照片。语义
+          embedding 与表情审美判断仍延期。
         </p>
         <p>
           无需注册，不上传照片、路径、EXIF 或遥测。未验证真实 S9 偏好召回与
-          Windows Edge 外部目录操作，不能作为
-          Stable。写入失败可下载报告，成功仅在 SHA 校验后显示。
+          其他平台外部目录操作，不能作为 Stable。写入失败可下载报告，成功仅在
+          SHA 校验后显示。
         </p>
       </details>
     </main>
     <dialog id="compare">
-      <form method="dialog"><button>关闭 Esc</button></form>
-      <label><input id="sync" type="checkbox" checked />同步缩放 / 平移</label
+      <form method="dialog"><button>返回照片</button></form>
+      <label class="advanced-control"
+        ><input id="sync" type="checkbox" checked />同步缩放 / 平移</label
       ><button id="zoom-reset">适合窗口</button
       ><button id="zoom-one">1:1</button>
       <div id="compare-images"></div>
+      <div id="viewer-actions" hidden>
+        <button id="viewer-prev">← 上一张</button>
+        <button id="viewer-keep">保留</button>
+        <button id="viewer-exclude">暂不导出</button>
+        <button id="viewer-next">下一张 →</button>
+        <span id="viewer-decision" role="status"></span>
+      </div>
     </dialog>
     <dialog id="confirm">
-      <h2>确认复制原件</h2>
+      <h2>确认整理</h2>
       <p id="confirm-text"></p>
-      <button id="confirm-copy">确认复制</button
+      <button id="confirm-copy">确认整理</button
       ><button id="confirm-cancel">取消</button>
     </dialog>
     <script type="module" src="./auto.js"></script>

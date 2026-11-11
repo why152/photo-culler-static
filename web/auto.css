@@ -55,7 +55,7 @@ select {
 }
 button:hover,
 button:focus-visible {
-  border-color: #e2c48b;
+  border-color: #0a84ff;
 }
 button:disabled {
   opacity: 0.45;
@@ -65,7 +65,7 @@ button[aria-current],
 #choose,
 #accept,
 #confirm-copy {
-  background: #e2c48b;
+  background: #0a84ff;
   color: #201c16;
 }
 label {
@@ -89,7 +89,7 @@ section {
 }
 .badge {
   font-size: 12px;
-  color: #e2c48b;
+  color: #0a84ff;
   border: 1px solid #675a43;
   padding: 4px 8px;
   border-radius: 5px;
@@ -110,7 +110,7 @@ section {
 .stats strong {
   display: block;
   font-size: 30px;
-  color: #e2c48b;
+  color: #0a84ff;
 }
 .toolbar {
   display: flex;
@@ -149,8 +149,8 @@ section {
   font-size: 13px;
 }
 .card .selected {
-  border-color: #e2c48b;
-  color: #e2c48b;
+  border-color: #0a84ff;
+  color: #0a84ff;
 }
 small {
   color: #9297a5;
@@ -218,7 +218,7 @@ dialog::backdrop {
   margin: 5px;
 }
 #global {
-  border-left: 3px solid #e2c48b;
+  border-left: 3px solid #0a84ff;
   padding-left: 14px;
 }
 @media (max-width: 700px) {
@@ -258,7 +258,7 @@ summary {
 button:focus-visible,
 select:focus-visible,
 summary:focus-visible {
-  outline: 2px solid #e2c48b;
+  outline: 2px solid #0a84ff;
   outline-offset: 3px;
 }
 html:fullscreen #compare {
@@ -302,7 +302,7 @@ body[data-tools="simple"] .advanced-control {
 }
 #target,
 #copy:not(:disabled) {
-  background: #e2c48b;
+  background: #0a84ff;
   color: #201c16;
 }
 body[data-tools="simple"] .card input {
@@ -323,4 +323,190 @@ body[data-tools="simple"] .card button {
 
 body[data-tools="advanced"] .simple-card-status {
   display: none;
+}
+
+[hidden] {
+  display: none !important;
+}
+.portrait-option {
+  margin: 18px 0;
+  padding: 10px 14px;
+  border: 1px solid #34363c;
+  border-radius: 10px;
+}
+.portrait-option p {
+  font-size: 13px;
+  margin: 4px 0;
+}
+.portrait-option label {
+  margin: 4px;
+  min-height: 44px;
+}
+.portrait-option input {
+  width: 20px;
+  height: 20px;
+}
+
+/* Familiar gallery surface; the underlying review/export safety stays separate. */
+#gallery-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+#gallery-actions #tools-toggle {
+  float: none;
+  margin: 0;
+}
+#choose-home {
+  display: none;
+}
+#gallery-summary {
+  margin: 0;
+  font-size: 14px;
+}
+#viewer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 14px;
+}
+#viewer-decision {
+  color: #c8cbd2;
+  margin-left: 10px;
+}
+body[data-tools="simple"] main {
+  padding-top: 18px;
+}
+body[data-tools="simple"] header {
+  padding: 16px 4vw;
+}
+body[data-tools="simple"] nav,
+body[data-tools="simple"] .steps,
+body[data-tools="simple"] #stats,
+body[data-tools="simple"] #results-space > h1,
+body[data-tools="simple"] #simple-result-guide {
+  display: none;
+}
+body[data-tools="simple"] #import-space {
+  text-align: center;
+  padding: 70px 0 40px;
+  min-height: 450px;
+}
+body[data-tools="simple"] #import-space h1 {
+  font-size: 30px;
+  margin: 0 auto 12px;
+}
+body[data-tools="simple"] #import-space .entry-intro {
+  font-size: 15px;
+}
+body[data-tools="simple"] .portrait-option {
+  border: 0;
+  padding: 0;
+  margin: 12px 0;
+}
+body[data-tools="simple"] #import-space h2 {
+  font-size: 16px;
+  margin-top: 36px;
+}
+body[data-tools="simple"] #results-space .toolbar {
+  margin: 12px 0;
+}
+body[data-tools="simple"] #export-space h1 {
+  font-size: 28px;
+  margin-top: 20px;
+}
+body[data-tools="simple"] #global {
+  font-size: 14px;
+  margin: 4px 0 12px;
+}
+body[data-tools="advanced"] #gallery-summary {
+  display: none;
+}
+@media (max-width: 700px) {
+  #gallery-actions {
+    flex-wrap: wrap;
+  }
+  body[data-tools="simple"] #import-space {
+    padding-top: 35px;
+  }
+}
+#gallery-filters {
+  display: flex;
+  gap: 6px;
+}
+#gallery-filters [aria-pressed="true"] {
+  border-color: #0a84ff;
+  color: #0a84ff;
+}
+body[data-tools="advanced"] #gallery-filters {
+  display: none;
+}
+
+/* Quiet, photo-first personal workflow. */
+:root {
+  background: #141416;
+}
+button[aria-current],
+#choose,
+#accept,
+#confirm-copy,
+#target,
+#copy:not(:disabled) {
+  background: #0a84ff;
+  color: #fff;
+}
+button:hover,
+button:focus-visible {
+  border-color: #0a84ff;
+}
+#gallery-filters [aria-pressed="true"] {
+  border-color: #0a84ff;
+  color: #69b1ff;
+}
+body[data-tools="simple"] .card {
+  position: relative;
+  border-radius: 14px;
+}
+body[data-tools="simple"] .card[data-decision="include"] {
+  border-color: #0a84ff;
+}
+body[data-tools="simple"] .simple-card-status {
+  font-weight: 600;
+}
+body[data-tools="simple"] .card[data-decision="include"] .simple-card-status {
+  color: #69b1ff;
+}
+.batch-count {
+  display: block;
+  font-size: 12px;
+  color: #a7a7af;
+  margin: 10px 2px 2px;
+}
+body[data-tools="simple"] .batch-toggle {
+  width: calc(100% - 4px);
+  background: transparent;
+}
+body[data-tools="simple"] #acceptance-status-export {
+  display: none;
+}
+body[data-tools="simple"] #feedback:empty {
+  display: none;
+}
+body[data-tools="simple"] #export-space {
+  max-width: 650px;
+  margin: 40px auto;
+}
+body[data-tools="simple"] #unprocessed {
+  display: none;
+}
+.media-placeholder {
+  display: grid;
+  place-items: center;
+  height: 175px;
+  background: #17171a;
+  border-radius: 6px;
+  color: #8e8e93;
+  font-size: 16px;
 }

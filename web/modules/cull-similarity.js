@@ -1,3 +1,5 @@
+import { orbAgreement } from "./orb-match.js";
+import { usablePortrait } from "./portrait-evidence.js";
 import { createSHA256 } from "hash-wasm";
 import { checkAbort } from "./cull-inventory.js";
 export async function digest(file, signal) {
@@ -70,7 +72,44 @@ export function similarityKind(batch) {
     : "unknown";
 }
 // Complete-link, bounded time window: no A~B~C transitive chains.
-export function cluster(groups) {
+export function portraitPair(a, b) {
+  if (!usablePortrait(a) || !usablePortrait(b)) return false;
+  const x = a.analysis.portrait.faces,
+    y = b.analysis.portrait.faces;
+  if (x.length !== y.length || distance(a.hash, b.hash) > 32) return false;
+  const ad = a.analysis.sourceDimensions,
+    bd = b.analysis.sourceDimensions;
+  if (
+    !ad ||
+    !bd ||
+    Math.abs(ad.width / ad.height - bd.width / bd.height) > 0.08
+  )
+    return false;
+  const compatible = x.every((f, i) => {
+    const g = y[i],
+      p = f.box,
+      q = g.box;
+    const ratio = f.area / g.area;
+    return (
+      f.hash &&
+      g.hash &&
+      distance(f.hash, g.hash) <= 18 &&
+      ratio > 0.55 &&
+      ratio < 1.8 &&
+      Math.hypot(
+        p.x + p.width / 2 - q.x - q.width / 2,
+        p.y + p.height / 2 - q.y - q.height / 2,
+      ) < 0.12
+    );
+  });
+  if (!compatible) return false;
+  return (
+    (distance(a.hash, b.hash) <= 12 &&
+      x.every((f, i) => distance(f.hash, y[i].hash) <= 10)) ||
+    orbAgreement(a.analysis.portrait.orb, b.analysis.portrait.orb) >= 0.3
+  );
+}
+export function cluster(groups, { portrait = false } = {}) {
   const result = [];
   const sorted = [...groups].sort(
     (a, b) =>
@@ -94,8 +133,11 @@ export function cluster(groups) {
                 versionCandidate(group, other) ||
                 (time != null &&
                   other.metadata?.capturedAt != null &&
-                  Math.abs(time - other.metadata.capturedAt) <= 2500 &&
-                  distance(group.hash, other.hash) <= 6)),
+                  ((Math.abs(time - other.metadata.capturedAt) <= 2500 &&
+                    distance(group.hash, other.hash) <= 6) ||
+                    (portrait &&
+                      Math.abs(time - other.metadata.capturedAt) <= 12000 &&
+                      portraitPair(group, other))))),
           ),
       );
     if (match) match.push(group);

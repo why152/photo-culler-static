@@ -1,9 +1,32 @@
 import { defineConfig } from "vite";
 import { copyFileSync } from "node:fs";
 import { resolve } from "node:path";
+function portraitPrivacyGate() {
+  return {
+    name: "portrait-tfjs-only",
+    generateBundle(_options, bundle) {
+      for (const chunk of Object.values(bundle))
+        if (chunk.type === "chunk")
+          for (const id of Object.keys(chunk.modules))
+            if (/node_modules\/@mediapipe\//.test(id))
+              throw Error(
+                "MediaPipe SDK is forbidden in the static runtime: " + id,
+              );
+    },
+  };
+}
 export default defineConfig({
   root: "web",
+  resolve: {
+    alias: [
+      {
+        find: /^@tensorflow-models\/face-detection$/,
+        replacement: resolve("web/modules/tf-face-detector.js"),
+      },
+    ],
+  },
   plugins: [
+    portraitPrivacyGate(),
     {
       name: "stable-public-assets",
       closeBundle() {
@@ -30,5 +53,5 @@ export default defineConfig({
       },
     },
   },
-  worker: { format: "es" },
+  worker: { format: "es", plugins: () => [portraitPrivacyGate()] },
 });

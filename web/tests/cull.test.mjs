@@ -355,3 +355,87 @@ test("resolution breaks comparable-quality ties and panoramic sources stay prote
   panorama.analysis.sourceDimensions = { width: 6000, height: 2000 };
   assert.equal(rank([panorama]).recommendations[panorama.id].plan, "protected");
 });
+
+test("organized copy partitions every companion once, follows human choice and resumes with verified bytes", async () => {
+  const groups = ["a", "b", "c"].map((id, i) => ({
+    ...g(id, i, "0000"),
+    fingerprint: id,
+    members: ["jpg", "rw2", "xmp"].map((ext) => ({
+      path: `sub/${id}.${ext}`,
+      size: 3,
+      lastModified: 1,
+      handle: file(`${id}.${ext}`),
+    })),
+  }));
+  const recommendations = {
+    a: { plan: "include" },
+    b: { plan: "suppress" },
+    c: { plan: "protected" },
+  };
+  const plan = exportPlan(groups, {}, recommendations, false, {
+    organize: true,
+  });
+  assert.equal(plan.fileCount, 9);
+  assert.equal(new Set(plan.records.map((r) => r.source)).size, 9);
+  assert.deepEqual(
+    plan.records.map((r) => r.destination.split("/")[0]),
+    [
+      "已选",
+      "已选",
+      "已选",
+      "未选",
+      "未选",
+      "未选",
+      "待复核",
+      "待复核",
+      "待复核",
+    ],
+  );
+  const output = outputDir();
+  await copyPlan(plan, output);
+  assert.equal(plan.status, "completed");
+  assert.ok(plan.records.every((r) => r.sourceSHA === r.destinationSHA));
+  const resumed = resumePlan(publicManifest(plan), groups);
+  await copyPlan(resumed, output);
+  assert.equal(output.dirs.get("未选").dirs.get("sub").writes, 3);
+  const changed = exportPlan(
+    groups,
+    { b: { decision: "keep" }, a: { decision: "exclude" } },
+    recommendations,
+    false,
+    { organize: true },
+  );
+  assert.ok(
+    changed.records
+      .filter((r) => r.groupId === "b")
+      .every((r) => r.destination.startsWith("已选/")),
+  );
+  assert.ok(
+    changed.records
+      .filter((r) => r.groupId === "a")
+      .every((r) => r.destination.startsWith("未选/")),
+  );
+  const tampered = publicManifest(plan);
+  tampered.records[0].destination = "未选/" + tampered.records[0].source;
+  assert.throws(() => resumePlan(tampered, groups), /路径无效/);
+  const traversed = publicManifest(plan);
+  traversed.records[0].source = "../a.jpg";
+  assert.throws(() => resumePlan(traversed, groups));
+});
+
+test("organized copy refuses same-size same-time content changes since analysis", async () => {
+  const original = file("a.jpg", "abc"),
+    modified = file("a.jpg", "xyz");
+  const group = {
+    ...g("a", 0, "0000"),
+    source: { path: "a.jpg" },
+    sourceSHA: await digest(await original.getFile()),
+    members: [{ path: "a.jpg", size: 3, lastModified: 1, handle: modified }],
+  };
+  const plan = exportPlan([group], {}, { a: { plan: "include" } }, false, {
+    organize: true,
+  });
+  const output = outputDir();
+  await assert.rejects(copyPlan(plan, output), /来源内容已更改/);
+  assert.equal(output.dirs.has("已选"), false);
+});

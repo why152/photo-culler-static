@@ -1,6 +1,6 @@
 # Third-party notices
 
-Pinned runtime dependencies (no remote CDN or model downloads):
+Pinned runtime dependencies (no external CDN; optional self-hosted models below):
 
 | Package | Version | License | Local notice |
 |---|---|---|---|
@@ -10,10 +10,9 @@ Pinned runtime dependencies (no remote CDN or model downloads):
 | Vite (build only) | 8.3.6 | MIT and bundled notices | [license](docs/licenses/vite.txt) |
 
 hash-wasm embeds its WASM binary into bundled JavaScript; there is no separately
-fetched `.wasm` URL. exifr and pHash run in a local dedicated Worker. No models
-are installed or downloaded. MediaPipe is deferred because its telemetry gate
-has not been passed; embedding is deferred without a verified licensed small
-model and measured recall improvement. browser-fs-access is not installed because
+fetched `.wasm` URL. exifr and pHash run in a local dedicated Worker. No inference models load by default. The opt-in TFJS portrait path below uses
+first-party pinned assets; MediaPipe SDK telemetry remains excluded, and semantic
+embedding stays deferred without a verified small model and measured benefit. browser-fs-access is not installed because
 native read-only import is sufficient for this desktop baseline.
 
 Existing viewer, CPU quality analysis, caches and journal implementation are
@@ -34,3 +33,31 @@ No implementation or assets copied from Pixo (GPL-3.0) or compare-image.
 No repository-wide license has been invented: this repository
 had no root LICENSE at the baseline. The third-party licenses above remain in
 force independently of the owner's choice of license for project code.
+
+## Optional portrait enhancement (beta.5)
+
+The optional portrait Worker loads only first-party static assets. It uses
+`@tensorflow-models/face-landmarks-detection`1.0.6, `face-detection`1.0.3 and
+TensorFlow.js core/converter/WASM4.22.0 (Apache-2.0). Converted official model v1
+weights are Apache-2.0, separately verified in the Kaggle model catalog. Sources,
+byte sizes and SHA-256 are pinned in `web/public/models/portrait-v1/ASSETS.json`.
+Full Apache notice: [TensorFlow](docs/licenses/tensorflow.txt). Peer SDK packages
+may exist in the build installation; a Vite graph gate forbids MediaPipe SDK code
+in either main or Worker runtime. No MediaPipe tasks-vision or remote telemetry.
+
+- Facet38752c35f0d1403a7c4f041ad9682027faf5da2a:
+  `analyzers/face.py:calculate_ear` and pose-based blink uncertainty;
+  [MIT](docs/licenses/facet.txt).
+- Selects60e5e825d431d0a09e923851e47183960bf9b0cf:
+  `selects/ml/face_attributes.py`, EAR mapping, significant-face area and bounded
+  eyes-open burst preference; [MIT](docs/licenses/selects.txt).
+- Photo-Curator1cb56a07, `photo_dedup_batch.py:_orb_similarity`: reciprocal
+  Hamming<40 matching and .30 confirmation. Existing Photo-Curator MIT notice.
+- jsfeat0.0.8 supplies bounded corner/ORB extraction; [MIT](docs/licenses/jsfeat.txt).
+
+468-point geometry and browser/WASM decoding differ from the upstream106-point
+InsightFace/OpenCV implementations; no pixel parity or accuracy equivalence is
+claimed. No InsightFace weights, Apple Vision, face recognition, emotion,
+age/gender models or original-file actions are imported. Full notices ship in
+`UPSTREAM_NOTICES.txt`. Older statements about models being deferred describe the
+baseline; this opt-in TFJS path satisfies a separate gate (ADR0004).

@@ -6,6 +6,7 @@ export function exportPlan(
   human,
   recommendations,
   includeProtected = false,
+  { organize = false } = {},
 ) {
   const records = [],
     unprocessed = [];
@@ -19,6 +20,7 @@ export function exportPlan(
         reasons: machine.reasons ?? ["未分析"],
       });
     if (
+      !organize &&
       decision !== "include" &&
       !(includeProtected && decision === "protected")
     )
@@ -27,11 +29,16 @@ export function exportPlan(
       safeParts(member.path);
       records.push({
         source: member.path,
-        destination: "Keepers/" + member.path,
+        destination:
+          (organize ? organizationFolder(decision) : "Keepers") +
+          "/" +
+          member.path,
         groupId: group.id,
         size: member.size,
         lastModified: member.lastModified,
         fingerprint: group.fingerprint,
+        sourceSHA:
+          member.path === group.source?.path ? group.sourceSHA : undefined,
         decision,
         human: human[group.id] ?? null,
         machine,
@@ -49,6 +56,7 @@ export function exportPlan(
     fileCount: records.length,
     bytes: records.reduce((n, r) => n + r.size, 0),
     includeProtected,
+    layout: organize ? "organized" : "keepers",
     unprocessed,
     groups: groups.map((group) => ({
       id: group.id,
@@ -64,6 +72,13 @@ export function exportPlan(
     })),
     records,
   };
+}
+export function organizationFolder(decision) {
+  const folder = { include: "已选", protected: "待复核", suppress: "未选" }[
+    decision
+  ];
+  if (!folder) throw new Error("无效的照片选择状态");
+  return folder;
 }
 export function publicManifest(plan) {
   return {
@@ -295,11 +310,25 @@ export async function copyPlan(
 export function resumePlan(report, groups) {
   if (report?.version !== 2 || !Array.isArray(report.records))
     throw new Error("不支持的导出记录");
+  if (
+    report.layout != null &&
+    !["organized", "keepers"].includes(report.layout)
+  )
+    throw new Error("不支持的整理方式");
   return {
     ...report,
     records: report.records.map((record) => {
       safeParts(record.source);
-      if (record.destination !== "Keepers/" + record.source)
+      const groupReport = report.groups?.find((g) => g.id === record.groupId);
+      const folder =
+        report.layout === "organized"
+          ? organizationFolder(groupReport?.decision)
+          : "Keepers";
+      if (
+        record.destination !== folder + "/" + record.source ||
+        (report.layout === "organized" &&
+          record.decision !== groupReport?.decision)
+      )
         throw new Error("导出记录路径无效");
       const group = groups.find(
         (g) => g.id === record.groupId && g.fingerprint === record.fingerprint,

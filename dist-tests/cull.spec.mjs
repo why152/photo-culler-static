@@ -8,8 +8,8 @@ test("built subpath ships full upstream MIT notices", async ({ request }) => {
   expect(text).toContain("Copyright (c) 2026 Zane");
   expect(text).toContain('THE SOFTWARE IS PROVIDED "AS IS"');
 });
-async function fixture(page) {
-  await page.evaluate(async () => {
+async function fixture(page, { legacy = true } = {}) {
+  await page.evaluate(async (legacy) => {
     const root = await navigator.storage.getDirectory();
     const source = await root.getDirectoryHandle("camera", { create: true });
     const target = await root.getDirectoryHandle("exports", { create: true });
@@ -44,12 +44,53 @@ async function fixture(page) {
       create: true,
     });
     await write(historical, "skip.jpg", blob);
+    // Most regressions intentionally exercise the retained selected-only session.
+    // New automatic-workflow tests pass legacy:false to verify fresh defaults.
+    if (legacy) {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("photo-culler-local");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const id = crypto.randomUUID();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(
+          ["directory-identities", "cull-sessions"],
+          "readwrite",
+        );
+        tx.objectStore("directory-identities").put(
+          { id, directory: source, createdAt: Date.now() },
+          id,
+        );
+        tx.objectStore("cull-sessions").put(
+          {
+            id,
+            directory: source,
+            name: source.name,
+            human: {},
+            version: 2,
+            updatedAt: Date.now(),
+            preferences: {
+              outputLayout: "keepers",
+              portrait: false,
+              mode: "album",
+            },
+          },
+          id,
+        );
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+      document.querySelector("#filter").value = "shortlist";
+      document.querySelector("#filter").dispatchEvent(new Event("change"));
+    }
     window.__source = source;
     window.__target = target;
     window.__blob = blob;
     window.showDirectoryPicker = async (options) =>
       options.id === "photo-culler-output" ? target : source;
-  });
+  }, legacy);
 }
 test("built root: readonly import, workers, protected formats, comparisons, export and session reopen without uploads", async ({
   page,
@@ -207,53 +248,57 @@ test("read directory works without native move support, v1 remains reachable", a
   await expect(page.locator("#choose-folder")).toBeEnabled();
 });
 
-test("an interrupted copy resumes after reload using its saved output without changing source files", async ({
-  page,
-}) => {
-  await page.goto("./");
-  await page.locator("#tools-toggle").click();
-  await fixture(page);
-  await page.locator("#choose").click();
-  await expect(page.locator("#global")).toContainText("本地分析完成");
-  await page.locator('[data-space="export"]').click();
-  await page.locator("#include-protected").check();
-  await page
-    .getByRole("button", { name: "接受当前输出计划", exact: true })
-    .click();
-  await page.locator("#target").click();
-  await page.evaluate(() => {
-    const original = FileSystemDirectoryHandle.prototype.getDirectoryHandle;
-    let fail = true;
-    FileSystemDirectoryHandle.prototype.getDirectoryHandle = function (
-      name,
-      options,
-    ) {
-      if (name === "Keepers" && fail) {
-        fail = false;
-        return Promise.reject(
-          new DOMException("simulated disk full", "QuotaExceededError"),
-        );
-      }
-      return original.call(this, name, options);
-    };
+for (const layout of ["keepers", "organized"]) {
+  test(`an interrupted ${layout} copy resumes after reload using its saved output without changing source files`, async ({
+    page,
+  }) => {
+    await page.goto("./");
+    await page.locator("#tools-toggle").click();
+    await fixture(page);
+    await page.locator("#choose").click();
+    await expect(page.locator("#global")).toContainText("本地分析完成");
+    await page.locator('[data-space="export"]').click();
+    if (layout === "organized")
+      await page.locator("#output-layout").selectOption("organized");
+    else await page.locator("#include-protected").check();
+    await page
+      .getByRole("button", { name: "接受当前输出计划", exact: true })
+      .click();
+    await page.locator("#target").click();
+    await page.evaluate((layout) => {
+      const original = FileSystemDirectoryHandle.prototype.getDirectoryHandle;
+      let fail = true;
+      FileSystemDirectoryHandle.prototype.getDirectoryHandle = function (
+        name,
+        options,
+      ) {
+        if (name === (layout === "organized" ? "已选" : "Keepers") && fail) {
+          fail = false;
+          return Promise.reject(
+            new DOMException("simulated disk full", "QuotaExceededError"),
+          );
+        }
+        return original.call(this, name, options);
+      };
+    }, layout);
+    await page.locator("#copy").click();
+    await page.locator("#confirm-copy").click();
+    await expect(page.locator("#feedback")).toContainText("导出未完成");
+    await page.reload();
+    await page.locator("#sessions button").first().click();
+    await expect(page.locator("#global")).toContainText("本地分析完成");
+    await page.locator('[data-space="export"]').click();
+    await page.getByRole("button", { name: "继续上次中断导出" }).click();
+    await page.locator("#confirm-copy").click();
+    await expect(page.locator("#feedback")).toContainText("已复制并校验");
+    const count = await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      const target = await root.getDirectoryHandle("exports");
+      return (await Array.fromAsync(target.values())).length;
+    });
+    expect(count).toBe(1);
   });
-  await page.locator("#copy").click();
-  await page.locator("#confirm-copy").click();
-  await expect(page.locator("#feedback")).toContainText("导出未完成");
-  await page.reload();
-  await page.locator("#sessions button").first().click();
-  await expect(page.locator("#global")).toContainText("本地分析完成");
-  await page.locator('[data-space="export"]').click();
-  await page.getByRole("button", { name: "继续上次中断导出" }).click();
-  await page.locator("#confirm-copy").click();
-  await expect(page.locator("#feedback")).toContainText("已复制并校验");
-  const count = await page.evaluate(async () => {
-    const root = await navigator.storage.getDirectory();
-    const target = await root.getDirectoryHandle("exports");
-    return (await Array.fromAsync(target.values())).length;
-  });
-  expect(count).toBe(1);
-});
+}
 
 test("accept saves the exact plan, undo gates copy, changes invalidate it, and reload restores it", async ({
   page,
@@ -382,7 +427,11 @@ test("favorite-filtered paging wraps 90 results instead of using the whole inven
   });
   await page.reload();
   await page.locator("#sessions button").first().click();
-  await expect(page.locator("#global")).toContainText("本地分析完成");
+  // This regression adds120 uncached sources; automatic local inference must finish
+  // before paging is asserted. The default5s expectation is not a scan-time budget.
+  await expect(page.locator("#global")).toContainText("本地分析完成", {
+    timeout: 30000,
+  });
   await page.locator("#filter").selectOption("favorite");
   await expect(page.locator(".card")).toHaveCount(60);
   await page.locator("#more").click();
@@ -530,7 +579,11 @@ test("review shortcuts undo independently, narrow survey falls back, inputs keep
   );
 });
 
-for (const priorAlgorithm of ["rules-2.0-beta.2", "rules-2.0-beta.3"])
+for (const priorAlgorithm of [
+  "rules-2.0-beta.2",
+  "rules-2.0-beta.3",
+  "rules-2.0-beta.4",
+])
   test(`${priorAlgorithm} accepted plan requires reacceptance after upgrade while favorite survives`, async ({
     page,
   }) => {
@@ -809,6 +862,8 @@ test("downloaded labels restore after browser study loss, invalid imports or dec
   expect(backup.study.preferences).toEqual({
     mode: "burst",
     strength: "compact",
+    portrait: true,
+    portraitKeep: 1,
   });
   expect(backup.study.labels["group:A"].source).toBe("human");
   await page
@@ -1193,7 +1248,7 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
-  await expect(page.locator("#accept")).toHaveText("下一步：导出推荐照片");
+  await expect(page.locator("#accept")).toHaveText("整理照片");
   await expect(page.locator("#simple-result-guide")).toContainText("暂不选入");
   await expect(page.locator("#effort-open")).not.toBeVisible();
   await expect(
@@ -1208,8 +1263,25 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
       .first()
       .getByRole("button", { name: "拆出连拍", exact: true }),
   ).not.toBeVisible();
+  await expect(page.locator("nav")).not.toBeVisible();
+  await expect(page.locator("#stats")).not.toBeVisible();
+  await expect(page.locator("#app-header #choose")).toBeVisible();
+  await page.getByRole("button", { name: "全部照片", exact: true }).click();
+  await expect(page.locator(".card")).toHaveCount(4);
+  await page.getByRole("button", { name: "展开 4 张", exact: true }).click();
+  await expect(page.locator(".card")).toHaveCount(7);
+  await page.getByRole("button", { name: "推荐与待复核", exact: true }).click();
   await page.locator(".card img").first().click();
   await expect(page.locator("#compare")).toBeVisible();
+  await expect(page.locator("#viewer-next")).toBeVisible();
+  await page.locator("#viewer-exclude").click();
+  await expect(page.locator("#viewer-decision")).toContainText("未选");
+  await page.locator("#viewer-keep").click();
+  await expect(page.locator("#viewer-decision")).toContainText("已选");
+  await page.locator("#viewer-next").click();
+  await expect(page.locator("#compare img")).toHaveAttribute("alt", "B");
+  await page.locator("#viewer-prev").click();
+  await expect(page.locator("#compare img")).toHaveAttribute("alt", "A");
   await page.keyboard.press("Escape");
   await page.screenshot({
     path: "output/simple-workflow/results.png",
@@ -1236,11 +1308,11 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
       async () => (await Array.fromAsync(window.__target.values())).length,
     ),
   ).toBe(0);
-  await page.locator('[data-space="results"]').click();
-  await expect(page.locator("#accept")).toHaveText("继续：选择保存位置");
+  await page.locator("#gallery-back").click();
+  await expect(page.locator("#accept")).toHaveText("继续整理");
   await page.locator("#accept").click();
   await expect(page.locator("#export-space")).toBeVisible();
-  await page.locator('[data-space="results"]').click();
+  await page.locator("#gallery-back").click();
   await page.locator("#tools-toggle").click();
   await expect(page.locator("#effort-open")).toBeVisible();
   await expect(page.locator("#compare-two")).toBeVisible();
@@ -1249,4 +1321,258 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
     "aria-expanded",
     "true",
   );
+});
+
+test("portrait analysis is automatic, self-hosted and versioned without changing source bytes", async ({
+  page,
+}) => {
+  const requests = [];
+  page.on("request", (r) =>
+    requests.push({ url: r.url(), method: r.method() }),
+  );
+  await page.goto("./");
+  await fixture(page);
+  await expect(page.locator("#portrait")).toBeChecked();
+  await expect(page.locator("#portrait")).not.toBeVisible();
+  await expect(page.locator("#portrait-budget")).not.toBeVisible();
+  expect(
+    requests.some((r) => /models\/portrait|portrait-runtime/.test(r.url)),
+  ).toBe(false);
+  await page.locator("#tools-toggle").click();
+  await expect(page.locator("#portrait")).not.toBeVisible();
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  const result = await page.evaluate(async () => {
+    const db = await new Promise((r) => {
+      const q = indexedDB.open("photo-culler-local");
+      q.onsuccess = () => r(q.result);
+    });
+    const all = (n) =>
+      new Promise((r) => {
+        const q = db.transaction(n).objectStore(n).getAll();
+        q.onsuccess = () => r(q.result);
+      });
+    const analysis = await all("analysis"),
+      sessions = await all("cull-sessions");
+    db.close();
+    return {
+      portrait: analysis
+        .filter((x) => x.analysis.analysis.thumbnail)
+        .map((x) => x.analysis.analysis.portrait),
+      prefs: sessions[0].preferences,
+    };
+  });
+  expect(result.portrait).toHaveLength(4);
+  expect(result.portrait.every((x) => x?.status === "ready")).toBe(true);
+  expect(result.prefs.portrait).toBe(true);
+  expect(result.prefs.portraitKeep).toBe(1);
+  expect(
+    requests.some((r) => /models\/portrait-v1\/.*\.wasm/.test(r.url)),
+  ).toBe(true);
+  expect(
+    requests
+      .filter((r) => /^https?:/.test(r.url))
+      .every(
+        (r) =>
+          new URL(r.url).origin === new URL(page.url()).origin &&
+          r.method === "GET",
+      ),
+  ).toBe(true);
+  await page.locator("#accept").click();
+  await expect(page.locator("#acceptance-status-export")).toContainText(
+    "已采纳",
+  );
+  await page.reload();
+  await page.locator("#sessions button").first().click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await page.locator("[data-space=import]").click();
+  await expect(page.locator("#portrait")).toBeChecked();
+  await page.locator("[data-space=export]").click();
+  await page.locator("#output-layout").selectOption("organized");
+  await expect(page.locator("#acceptance-status-export")).toContainText(
+    "尚未采纳",
+  );
+});
+
+test("missing portrait model falls back to unchanged rules and keeps photo review usable", async ({
+  page,
+}) => {
+  await page.route("**/models/portrait-v1/**", (route) =>
+    route.fulfill({ status: 404, body: "synthetic missing model" }),
+  );
+  await page.goto("./");
+  await fixture(page);
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await expect(page.locator("#feedback")).toContainText("使用基础分析");
+  await page.locator("#accept").click();
+  await expect(page.locator("#export-space")).toBeVisible();
+  await expect(page.locator("#copy")).toBeDisabled();
+});
+
+test("fresh automatic workflow shows expandable groups and organizes all choices only after confirmation", async ({
+  page,
+}) => {
+  const errors = [],
+    uploads = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("request", (r) => {
+    if (
+      /^https?:/.test(r.url()) &&
+      (r.method() !== "GET" ||
+        new URL(r.url()).origin !== "http://127.0.0.1:4175")
+    )
+      uploads.push(r.url());
+  });
+  await page.goto("./");
+  await fixture(page, { legacy: false });
+  const snapshot = () =>
+    page.evaluate(async () => {
+      const entries = [];
+      async function walk(dir, prefix = "") {
+        for await (const h of dir.values()) {
+          if (h.kind === "directory") await walk(h, prefix + h.name + "/");
+          else {
+            const f = await h.getFile();
+            entries.push([
+              prefix + h.name,
+              f.size,
+              f.lastModified,
+              Array.from(
+                new Uint8Array(
+                  await crypto.subtle.digest("SHA-256", await f.arrayBuffer()),
+                ),
+              ).join(","),
+            ]);
+          }
+        }
+      }
+      await walk(window.__source);
+      return entries.sort((a, b) => a[0].localeCompare(b[0]));
+    });
+  const before = await snapshot();
+  await expect(page.locator("#portrait")).not.toBeVisible();
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await expect(page.locator("#gallery-summary")).toContainText("7 项");
+  await expect(page.locator("#filter")).toHaveValue("all");
+  await expect(page.locator(".card")).toHaveCount(4);
+  await page.getByRole("button", { name: "展开 4 张", exact: true }).click();
+  await expect(page.locator(".card")).toHaveCount(7);
+  const b = page.locator('.card[data-group-id="group:B"]');
+  await b.getByRole("button", { name: "保留", exact: true }).click();
+  await expect(b).toHaveAttribute("data-decision", "include");
+  const a = page.locator('.card[data-group-id="group:A"]');
+  await a.getByRole("button", { name: "不选", exact: true }).click();
+  await expect(a).toHaveAttribute("data-decision", "suppress");
+  await page.getByRole("button", { name: "收起这组", exact: true }).click();
+  await expect(page.locator('.card[data-group-id="group:B"]')).toBeVisible();
+  await expect(page.locator('.card[data-group-id="group:A"]')).toHaveCount(0);
+  await page.screenshot({
+    path: "output/automatic-workflow/results.png",
+    fullPage: true,
+  });
+  await page.locator("#accept").click();
+  await expect(page.locator("#plan")).toContainText(
+    "已选 1 · 待复核 3 · 未选 3",
+  );
+  await expect(page.locator("#include-protected")).not.toBeVisible();
+  await page.locator("#target").click();
+  await expect(page.locator("#confirm-text")).toContainText(
+    "按已选、待复核、未选分组复制",
+  );
+  expect(
+    await page.evaluate(
+      async () => (await Array.fromAsync(window.__target.values())).length,
+    ),
+  ).toBe(0);
+  await page.locator("#confirm-cancel").click();
+  await page.locator("#copy").click();
+  await page.locator("#confirm-copy").click();
+  await expect(page.locator("#feedback")).toContainText("已复制并校验 9");
+  const report = await page.evaluate(async () => {
+    const out = (await Array.fromAsync(window.__target.values()))[0];
+    const reports = await out.getDirectoryHandle("Reports");
+    return JSON.parse(
+      await (
+        await (await reports.getFileHandle("manifest.json")).getFile()
+      ).text(),
+    );
+  });
+  expect(report.layout).toBe("organized");
+  expect(report.records).toHaveLength(9);
+  expect(new Set(report.records.map((r) => r.source)).size).toBe(9);
+  expect(report.records.every((r) => r.sourceSHA === r.destinationSHA)).toBe(
+    true,
+  );
+  expect(report.records.find((r) => r.source === "B.jpg").destination).toBe(
+    "已选/B.jpg",
+  );
+  expect(report.records.find((r) => r.source === "A.rw2").destination).toBe(
+    "未选/A.rw2",
+  );
+  expect(
+    report.records.find((r) => r.source === "sub/only.rw2").destination,
+  ).toBe("待复核/sub/only.rw2");
+  expect(await snapshot()).toEqual(before);
+  await page.reload();
+  await page.locator("#sessions button").first().click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await expect(page.locator('.card[data-group-id="group:B"]')).toHaveAttribute(
+    "data-decision",
+    "include",
+  );
+  expect(errors).toEqual([]);
+  expect(uploads).toEqual([]);
+});
+
+test("individual photos are screened automatically and remain manually selectable without a mode", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await fixture(page, { legacy: false });
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    const source = await root.getDirectoryHandle("singles", { create: true });
+    const canvas = document.createElement("canvas");
+    canvas.width = 400;
+    canvas.height = 300;
+    const ctx = canvas.getContext("2d");
+    for (const name of ["clear.jpg", "dark.jpg"]) {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, 400, 300);
+      if (name === "clear.jpg") {
+        ctx.fillStyle = "#888";
+        ctx.fillRect(0, 0, 400, 300);
+        for (let i = 0; i < 350; i++) {
+          ctx.fillStyle = i % 2 ? "#ddd" : "#333";
+          ctx.fillRect((i * 37) % 400, (i * 17) % 300, 8, 8);
+        }
+      }
+      const blob = await new Promise((r) =>
+        canvas.toBlob(r, "image/jpeg", 0.95),
+      );
+      const writer = await (
+        await source.getFileHandle(name, { create: true })
+      ).createWritable();
+      await writer.write(blob);
+      await writer.close();
+    }
+    window.showDirectoryPicker = async () => source;
+  });
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await expect(page.locator(".card")).toHaveCount(2);
+  await expect(page.locator(".batch-toggle")).toHaveCount(0);
+  const clear = page.locator('.card[data-group-id="group:clear"]');
+  const dark = page.locator('.card[data-group-id="group:dark"]');
+  await expect(clear).toHaveAttribute("data-decision", "include");
+  await expect(dark).toHaveAttribute("data-decision", "protected");
+  await dark.getByRole("button", { name: "保留", exact: true }).click();
+  await expect(dark).toHaveAttribute("data-decision", "include");
+  await clear.getByRole("button", { name: "不选", exact: true }).click();
+  await expect(clear).toHaveAttribute("data-decision", "suppress");
+  await expect(page.locator(".card")).toHaveCount(2);
+  await page.locator("#tools-toggle").click();
+  await expect(page.locator("#mode")).not.toBeVisible();
 });
