@@ -12,6 +12,11 @@ export function outputDecision(human = {}, machine = {}) {
   if (human.decision === "review_later") return "protected";
   return machine.plan ?? "protected";
 }
+// Selection is binary. Uncertain machine evidence remains diagnostic metadata;
+// it never checks a photo automatically or authorizes a source-file action.
+export function selectionState(human = {}, machine = {}) {
+  return outputDecision(human, machine) === "include" ? "include" : "suppress";
+}
 export function setHuman(
   previous = {},
   decision,

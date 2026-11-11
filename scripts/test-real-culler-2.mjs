@@ -443,7 +443,7 @@ try {
       detail: JSON.parse(document.querySelector("#unprocessed").textContent),
     }));
     report.defaultPlan = report.plan;
-    await expect(page.locator("#output-layout")).toHaveValue("organized");
+    await expect(page.locator("#output-layout")).toHaveValue("binary");
     report.organizedAllGroups = true;
     // Cancel once before writing: the target must remain entirely empty.
     await page.locator("#target").click();
@@ -490,7 +490,6 @@ try {
           throw new Error("Export SHA does not match original baseline");
         const expectedFolder = {
           include: "已选",
-          protected: "待复核",
           suppress: "未选",
         }[record.decision];
         if (record.destination !== expectedFolder + "/" + record.source)
@@ -513,7 +512,7 @@ try {
         verified++;
       }
       if (
-        manifest.layout !== "organized" ||
+        manifest.layout !== "binary" ||
         manifest.fileCount !== original.length
       )
         throw new Error("Organized output did not cover every sample member");
@@ -540,10 +539,10 @@ try {
         const members = groupMembers.get(group.id) ?? [];
         if (members.some((p) => /\.(mov|mp4|m4v|avi)$/i.test(p))) {
           videoGroups++;
-          if (group.decision !== "protected")
+          if (group.decision !== "suppress" || group.machine?.plan !== "protected")
             throw new Error("Video group was not protected");
         }
-        if (group.decision === "protected") {
+        if (group.machine?.plan === "protected") {
           protectedIncluded++;
           for (const path of members)
             if (!exported.has(path))

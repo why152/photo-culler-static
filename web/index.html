@@ -159,7 +159,7 @@
             </button>
             <div id="gallery-filters">
               <button data-gallery-filter="shortlist" aria-pressed="false">
-                推荐与待复核</button
+                已选照片</button
               ><button data-gallery-filter="all" aria-pressed="true">
                 全部照片
               </button>
@@ -167,12 +167,12 @@
             <label class="advanced-control"
               >显示
               <select id="filter">
-                <option value="shortlist">推荐与待复核</option>
+                <option value="shortlist">已选照片</option>
                 <option class="advanced-control" value="technical-review">
                   技术疑难与低曝光代表
                 </option>
                 <option value="all" selected>全部照片</option>
-                <option value="suppress">暂不导出</option>
+                <option value="suppress">未选照片</option>
                 <option class="advanced-control" value="favorite">★精选</option>
                 <option class="advanced-control" value="burst">连拍组</option>
               </select></label
@@ -195,19 +195,19 @@
       <section id="export-space" hidden>
         <button id="gallery-back">← 返回照片</button>
         <h1>整理照片</h1>
-        <p id="organization-note">按选择分到三个文件夹，原件保留。</p>
+        <p id="organization-note">按选择分到两个文件夹，原件保留。</p>
         <label class="advanced-control"
           >输出方式
           <select id="output-layout">
-            <option value="organized" selected>分组整理全部照片</option>
+            <option value="binary" selected>分组整理全部照片</option>
             <option value="keepers">仅复制已选照片</option>
           </select>
         </label>
-        <label id="include-protected-label"
+        <label id="include-protected-label" hidden
           ><input
             id="include-protected"
             type="checkbox"
-          />同时复制待复核照片和视频（不确定时可勾选）</label
+          />旧版兼容选项</label
         >
         <div
           id="organization-preview"

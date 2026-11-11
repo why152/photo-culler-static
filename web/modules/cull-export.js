@@ -1,19 +1,20 @@
 import { digest } from "./cull-similarity.js";
 import { safeParts, checkAbort } from "./cull-inventory.js";
-import { outputDecision, ALGORITHM_VERSION } from "./cull-session.js";
+import { outputDecision, selectionState, ALGORITHM_VERSION } from "./cull-session.js";
 export function exportPlan(
   groups,
   human,
   recommendations,
   includeProtected = false,
-  { organize = false } = {},
+  { organize = false, binary = false } = {},
 ) {
   const records = [],
     unprocessed = [];
   for (const group of groups) {
     const machine = recommendations[group.id] ?? {};
-    const decision = outputDecision(human[group.id], machine);
-    if (group.protected || decision === "protected" || !group.hash)
+    const rawDecision = outputDecision(human[group.id], machine);
+    const decision = binary ? selectionState(human[group.id], machine) : rawDecision;
+    if (group.protected || rawDecision === "protected" || !group.hash)
       unprocessed.push({
         id: group.id,
         path: group.path,
@@ -56,7 +57,7 @@ export function exportPlan(
     fileCount: records.length,
     bytes: records.reduce((n, r) => n + r.size, 0),
     includeProtected,
-    layout: organize ? "organized" : "keepers",
+    layout: organize ? (binary ? "binary" : "organized") : "keepers",
     unprocessed,
     groups: groups.map((group) => ({
       id: group.id,
@@ -68,7 +69,7 @@ export function exportPlan(
       })),
       human: human[group.id] ?? null,
       machine: recommendations[group.id] ?? null,
-      decision: outputDecision(human[group.id], recommendations[group.id]),
+      decision: (binary ? selectionState : outputDecision)(human[group.id], recommendations[group.id]),
     })),
     records,
   };
@@ -312,7 +313,7 @@ export function resumePlan(report, groups) {
     throw new Error("不支持的导出记录");
   if (
     report.layout != null &&
-    !["organized", "keepers"].includes(report.layout)
+    !["organized", "binary", "keepers"].includes(report.layout)
   )
     throw new Error("不支持的整理方式");
   return {
@@ -320,13 +321,15 @@ export function resumePlan(report, groups) {
     records: report.records.map((record) => {
       safeParts(record.source);
       const groupReport = report.groups?.find((g) => g.id === record.groupId);
+      if (report.layout === "binary" && !["include", "suppress"].includes(groupReport?.decision))
+        throw new Error("无效的照片选择状态");
       const folder =
-        report.layout === "organized"
+        ["organized", "binary"].includes(report.layout)
           ? organizationFolder(groupReport?.decision)
           : "Keepers";
       if (
         record.destination !== folder + "/" + record.source ||
-        (report.layout === "organized" &&
+        (["organized", "binary"].includes(report.layout) &&
           record.decision !== groupReport?.decision)
       )
         throw new Error("导出记录路径无效");
