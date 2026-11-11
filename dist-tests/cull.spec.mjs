@@ -1252,10 +1252,7 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
   await expect(page.locator("#simple-result-guide")).toContainText("暂不选入");
   await expect(page.locator("#effort-open")).not.toBeVisible();
   await expect(
-    page
-      .locator(".card")
-      .first()
-      .getByRole("button", { name: "保留", exact: true }),
+    page.locator(".card").first().locator(".photo-select"),
   ).toBeVisible();
   await expect(
     page
@@ -1274,10 +1271,17 @@ test("simple workflow keeps one next step, optional tools and protected reaccept
   await page.locator(".card img").first().click();
   await expect(page.locator("#compare")).toBeVisible();
   await expect(page.locator("#viewer-next")).toBeVisible();
-  await page.locator("#viewer-exclude").click();
-  await expect(page.locator("#viewer-decision")).toContainText("未选");
-  await page.locator("#viewer-keep").click();
-  await expect(page.locator("#viewer-decision")).toContainText("已选");
+  await page.locator("#viewer-select").click();
+  await expect(page.locator("#viewer-select")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await page.locator("#viewer-select").click();
+  await expect(page.locator("#viewer-select")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.locator("#viewer-decision")).toHaveText("手动");
   await page.locator("#viewer-next").click();
   await expect(page.locator("#compare img")).toHaveAttribute("alt", "B");
   await page.locator("#viewer-prev").click();
@@ -1460,10 +1464,10 @@ test("fresh automatic workflow shows expandable groups and organizes all choices
   await page.getByRole("button", { name: "展开 4 张", exact: true }).click();
   await expect(page.locator(".card")).toHaveCount(7);
   const b = page.locator('.card[data-group-id="group:B"]');
-  await b.getByRole("button", { name: "保留", exact: true }).click();
+  await b.locator(".photo-select").click();
   await expect(b).toHaveAttribute("data-decision", "include");
   const a = page.locator('.card[data-group-id="group:A"]');
-  await a.getByRole("button", { name: "不选", exact: true }).click();
+  await a.locator(".photo-select").click();
   await expect(a).toHaveAttribute("data-decision", "suppress");
   await page.getByRole("button", { name: "收起这组", exact: true }).click();
   await expect(page.locator('.card[data-group-id="group:B"]')).toBeVisible();
@@ -1568,11 +1572,145 @@ test("individual photos are screened automatically and remain manually selectabl
   const dark = page.locator('.card[data-group-id="group:dark"]');
   await expect(clear).toHaveAttribute("data-decision", "include");
   await expect(dark).toHaveAttribute("data-decision", "protected");
-  await dark.getByRole("button", { name: "保留", exact: true }).click();
+  await dark.locator(".photo-select").click();
   await expect(dark).toHaveAttribute("data-decision", "include");
-  await clear.getByRole("button", { name: "不选", exact: true }).click();
+  await clear.locator(".photo-select").click();
   await expect(clear).toHaveAttribute("data-decision", "suppress");
   await expect(page.locator(".card")).toHaveCount(2);
   await page.locator("#tools-toggle").click();
   await expect(page.locator("#mode")).not.toBeVisible();
+});
+
+test("photo-first stack expands without choosing, keyboard toggles retain focus and pending choices are serialized", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await fixture(page, { legacy: false });
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  const a = page.locator('.card[data-group-id="group:A"]');
+  await expect(a.locator(".photo-select")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(a.locator(".simple-card-status")).toHaveText("自动");
+  await expect(
+    a.getByRole("button", { name: "保留", exact: true }),
+  ).not.toBeVisible();
+  await page
+    .locator("#grid img")
+    .evaluateAll((imgs) => Promise.all(imgs.map((img) => img.decode())));
+  await page.screenshot({
+    path: "output/photo-first-polish/collapsed.png",
+    fullPage: true,
+  });
+  await a.getByRole("button", { name: "查看这组 4 张", exact: true }).click();
+  await expect(page.locator("#compare")).not.toBeVisible();
+  await expect(page.locator(".card")).toHaveCount(7);
+  await expect(page.locator(".batch-bar")).toContainText("4 张 · 已选 1");
+  await expect(a.locator(".photo-select")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  const stablePreview = await a.locator("img").getAttribute("src");
+  const b = page.locator('.card[data-group-id="group:B"] .photo-select');
+  await page.evaluate(() => {
+    const native = FileSystemFileHandle.prototype.getFile;
+    window.__holdSelection = true;
+    FileSystemFileHandle.prototype.getFile = async function (...args) {
+      if (this.name === "B.jpg" && window.__holdSelection)
+        await new Promise((resolve) => {
+          window.__releaseSelection = resolve;
+        });
+      return native.apply(this, args);
+    };
+    const control = document.querySelector(
+      '.card[data-group-id="group:B"] .photo-select',
+    );
+    control.click();
+    control.click();
+  });
+  await expect(b).toBeDisabled();
+  await expect(b).toHaveAttribute("aria-busy", "true");
+  await expect(b).toHaveAttribute("aria-pressed", "false");
+  await page.evaluate(() => {
+    window.__holdSelection = false;
+    window.__releaseSelection();
+  });
+  await expect(b).toHaveAttribute("aria-pressed", "true");
+  await expect(b).toBeEnabled();
+  await expect(b).toBeFocused();
+  await expect(a.locator("img")).toHaveAttribute("src", stablePreview);
+  await expect(page.locator('.card[data-group-id="group:B"]')).toHaveAttribute(
+    "data-origin",
+    "manual",
+  );
+  await page.keyboard.press("Space");
+  await expect(b).toHaveAttribute("aria-pressed", "false");
+  await expect(b).toBeFocused();
+  await page
+    .locator("#grid img")
+    .evaluateAll((imgs) => Promise.all(imgs.map((img) => img.decode())));
+  await page.screenshot({
+    path: "output/photo-first-polish/expanded.png",
+    fullPage: true,
+  });
+  await a.getByRole("button", { name: "查看 A", exact: true }).click();
+  await expect(page.locator("#viewer-select")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.locator("#viewer-keep")).not.toBeVisible();
+  await expect(page.locator("#viewer-exclude")).not.toBeVisible();
+  await page.locator("#viewer-select").focus();
+  await page.keyboard.press("Space");
+  await expect(page.locator("#viewer-select")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await expect(page.locator("#viewer-decision")).toHaveText("手动");
+  await page.keyboard.press("Space");
+  await expect(page.locator("#viewer-select")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "收起这组", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "展开 4 张", exact: true }),
+  ).toBeFocused();
+  await page.locator("#accept").click();
+  await expect(page.locator("#organization-preview")).toBeVisible();
+  await expect(
+    page.locator("#organization-preview [role=listitem]"),
+  ).toHaveCount(3);
+  await expect(page.locator("#plan")).not.toBeVisible();
+  await expect(page.locator("#organization-note")).toContainText("原件保留");
+  await page.screenshot({
+    path: "output/photo-first-polish/organize.png",
+    fullPage: true,
+  });
+  await page.locator("#gallery-back").click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBe(true);
+  const size = await a.locator(".photo-select").boundingBox();
+  expect(size.width).toBeGreaterThanOrEqual(44);
+  expect(size.height).toBeGreaterThanOrEqual(44);
+  await page.screenshot({
+    path: "output/photo-first-polish/narrow.png",
+    fullPage: true,
+  });
+  await page.reload();
+  await page.locator("#sessions button").first().click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await expect(a).toHaveAttribute("data-origin", "manual");
+  await expect(a.locator(".photo-select")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 });

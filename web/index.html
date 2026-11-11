@@ -145,7 +145,7 @@
         <p id="simple-result-guide">
           可以直接采用推荐，也可以点击照片放大；想改选时点“保留”或“暂不导出”。
         </p>
-        <p id="gallery-summary"></p>
+        <p id="gallery-summary" tabindex="-1"></p>
         <div id="stats" class="stats"></div>
         <div class="toolbar">
           <button id="accept">接受整批推荐</button
@@ -202,6 +202,14 @@
             type="checkbox"
           />同时复制待复核照片和视频（不确定时可勾选）</label
         >
+        <div
+          id="organization-preview"
+          class="simple-control"
+          role="list"
+          aria-label="整理分组"
+          hidden
+        ></div>
+        <p id="organization-total" class="simple-control" hidden></p>
         <div id="plan"></div>
         <button id="download" class="advanced-control">下载完整 manifest</button
         ><button id="download-csv" class="advanced-control">下载 CSV</button
@@ -253,8 +261,9 @@
       <div id="compare-images"></div>
       <div id="viewer-actions" hidden>
         <button id="viewer-prev">← 上一张</button>
-        <button id="viewer-keep">保留</button>
-        <button id="viewer-exclude">暂不导出</button>
+        <button id="viewer-select" class="photo-select simple-control"></button>
+        <button id="viewer-keep" class="advanced-control">保留</button>
+        <button id="viewer-exclude" class="advanced-control">暂不导出</button>
         <button id="viewer-next">下一张 →</button>
         <span id="viewer-decision" role="status"></span>
       </div>

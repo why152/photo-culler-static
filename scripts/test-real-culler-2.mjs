@@ -409,6 +409,9 @@ try {
     assert.equal(report.analysis.cached, report.expected.imageGroups);
     assert.ok(report.analysis.cards <= 60);
     await page.locator(".card img").first().click();
+    // A collapsed stack opens its members first; a member then opens the viewer.
+    if (!(await page.locator("#compare").isVisible()))
+      await page.locator(".card img").first().click();
     await page.locator("#zoom-one").click();
     await expect
       .poll(() =>
