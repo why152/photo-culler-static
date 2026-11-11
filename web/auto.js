@@ -1,4 +1,5 @@
 import { PORTRAIT_VERSION } from "./modules/portrait-evidence.js";
+import { galleryRows } from "./modules/cull-gallery.js";
 import { BrowserReviewStore } from "./modules/browser-store.js";
 import { inventory, checkAbort } from "./modules/cull-inventory.js";
 import {
@@ -31,8 +32,11 @@ import { installReviewEffort } from "./modules/review-effort-ui.js";
 import { ViewerZoom } from "./modules/viewer-zoom.js";
 const $ = (id) => document.getElementById(id);
 const store = new BrowserReviewStore();
-let portraitPreferenceExplicit = false;
 let portraitScope = null;
+const expandedBatches = new Set();
+// Portrait evidence is automatic. The hidden control preserves existing module contracts.
+$("portrait").checked = true;
+$("filter").value = "all";
 let moreTools = false;
 try {
   moreTools = sessionStorage.getItem("photo-culler-more-tools") === "true";
@@ -51,7 +55,7 @@ function renderTools() {
   $("tools-toggle").setAttribute("aria-expanded", String(moreTools));
   syncGalleryShell();
   if ($("accept") && !$("accept").disabled)
-    $("accept").textContent = moreTools ? "接受整批推荐" : "导出推荐";
+    $("accept").textContent = moreTools ? "接受整批推荐" : "整理照片";
 }
 $("tools-toggle").onclick = () => {
   moreTools = !moreTools;
@@ -63,7 +67,7 @@ $("tools-toggle").onclick = () => {
     !moreTools &&
     ["technical-review", "favorite", "burst"].includes($("filter").value)
   )
-    $("filter").value = "shortlist";
+    $("filter").value = "all";
   if (root) {
     render();
     renderPlan();
@@ -127,6 +131,7 @@ function setBusy(value) {
   $("strength").disabled = value;
   $("portrait").disabled = value;
   $("portrait-keep").disabled = value;
+  $("output-layout").disabled = value;
   $("include-protected").disabled = value;
   $("target").disabled = value;
   $("copy").disabled = value || !target || !groups.length || !!persistenceError;
@@ -156,6 +161,7 @@ function save() {
       includeProtected: $("include-protected").checked,
       portrait: $("portrait").checked,
       portraitKeep: Number($("portrait-keep").value),
+      outputLayout: $("output-layout").value,
     },
     algorithmVersion: ALGORITHM_VERSION,
     acceptedPlan: accepted,
@@ -190,6 +196,8 @@ async function sessions() {
   try {
     const list = await store.listSessions();
     $("sessions").replaceChildren();
+    $("sessions-title").hidden = !list.length;
+    $("sessions").hidden = !list.length;
     for (const item of list) {
       const b = document.createElement("button");
       b.textContent =
@@ -273,6 +281,7 @@ async function open(directory) {
     output = null;
     chosen.clear();
     portraitScope = null;
+    expandedBatches.clear();
     decisionHistory = new ReviewDecisionHistory();
     accepted = null;
     session = await store.session(root);
@@ -282,17 +291,11 @@ async function open(directory) {
       session.preferences?.includeProtected ??
       accepted?.plan?.includeProtected ??
       false;
-    $("portrait").checked = portraitPreferenceExplicit
-      ? $("portrait").checked
-      : (session.preferences?.portrait ?? $("portrait").checked);
-    $("portrait-keep").value = String(
-      portraitPreferenceExplicit
-        ? $("portrait-keep").value
-        : (session.preferences?.portraitKeep ?? $("portrait-keep").value),
-    );
-    portraitPreferenceExplicit = false;
-    $("portrait-budget").hidden = !$("portrait").checked;
-    $("mode").value = session.preferences?.mode ?? "burst";
+    $("portrait").checked = true;
+    $("output-layout").value = session.preferences?.outputLayout ?? "organized";
+    $("portrait-keep").value = String(session.preferences?.portraitKeep ?? 1);
+    $("portrait-budget").hidden = true;
+    $("mode").value = "burst";
     $("strength").value = defaultStrength(
       $("mode").value,
       session.preferences?.strength,
@@ -407,9 +410,9 @@ async function open(directory) {
     ).length;
     message(
       portraitFailures
-        ? `人物分析 ${portraitFailures} 组不可用，已安全使用原有规则；未根据缺失的人脸证据新增折叠。原件未改变。`
+        ? `筛选完成 · ${portraitFailures} 组使用基础分析`
         : $("portrait").checked
-          ? "人物连拍推荐已生成。仅比较同场景的脸部清晰度与可靠睁眼证据；侧脸、小脸及未分析项继续按原有规则处理。原件未改变。"
+          ? "筛选完成"
           : "规则短名单已生成。建议与待复核默认可见；未选中原件仍在源目录。",
     );
   } catch (e) {
@@ -501,7 +504,7 @@ function render() {
   $("simple-result-guide").textContent =
     `推荐 ${stats.include} 组，可直接下一步导出。待复核 ${stats.protected} 组暂不选入，导出时可勾选附带；所有原件始终保留。点击照片可放大、改选。`;
   $("gallery-summary").textContent =
-    `推荐 ${stats.include} · 待复核 ${stats.protected}（尚未选入导出） · 其余原件仍在文件夹中`;
+    `${groups.length} 项 · 已选 ${stats.include} · 待复核 ${stats.protected}`;
   const filter = $("filter").value;
   for (const b of document.querySelectorAll("[data-gallery-filter]"))
     b.setAttribute("aria-pressed", String(b.dataset.galleryFilter === filter));
@@ -521,15 +524,22 @@ function render() {
   $("portrait-scope-text").textContent = portraitScope
     ? `正在查看这组全部 ${visible.length} 张；导出仍采用整个文件夹的推荐。点“保留 / 暂不导出”可改选。`
     : "";
-  visibleCount = visible.length;
+  const rows =
+    !moreTools && !portraitScope
+      ? galleryRows(visible, batches, recommendations, state, expandedBatches)
+      : visible.map((group) => ({ group }));
+  visibleCount = rows.length;
   if (offset >= visibleCount) offset = 0;
   // Bound DOM and active URLs. Revoke old previews before rebuilding a page.
   release();
   effortController?.resetGrid();
   $("grid").replaceChildren();
-  for (const g of visible.slice(offset, offset + limit)) {
+  for (const row of rows.slice(offset, offset + limit)) {
+    const g = row.group;
     const card = document.createElement("article");
     card.className = "card";
+    card.dataset.groupId = g.id;
+    card.dataset.decision = state(g);
     const box = document.createElement("input");
     box.className = "advanced-control";
     box.type = "checkbox";
@@ -555,6 +565,19 @@ function render() {
         if (e.key === "Enter") void compare([g]);
       };
       card.append(img);
+    } else {
+      const placeholder = document.createElement("div");
+      placeholder.className = "media-placeholder";
+      placeholder.textContent = g.members.some((m) =>
+        /\.(mov|mp4|m4v|avi)$/i.test(m.path),
+      )
+        ? "视频"
+        : g.members.some((m) =>
+              /\.(rw2|raw|cr2|cr3|nef|arw|dng|orf|raf)$/i.test(m.path),
+            )
+          ? "RAW"
+          : "无法预览";
+      card.append(placeholder);
     }
     const name = document.createElement("p");
     name.textContent = g.path;
@@ -569,13 +592,14 @@ function render() {
     const status = document.createElement("p");
     status.className = "simple-card-status";
     status.textContent = {
-      include: "建议保留",
-      protected: "待复核 · 尚未选入导出",
-      suppress: "暂不导出 · 原件保留",
+      include: human[g.id]?.decision === "keep" ? "✓ 已选" : "✓ 自动选中",
+      protected: "待复核",
+      suppress: human[g.id]?.decision === "exclude" ? "未选" : "自动未选",
     }[state(g)];
     const portrait = g.analysis?.portrait;
     if (portrait?.faces?.length) {
       const faceStatus = document.createElement("p");
+      faceStatus.className = "advanced-control";
       const portraitBatch = m?.portraitBatch
         ? batches.find((b) => b.some((x) => x.id === g.id))
         : null;
@@ -623,7 +647,7 @@ function render() {
         h.decision === "keep",
       ),
       button(
-        "暂不导出",
+        moreTools ? "暂不导出" : "不选",
         () => void decide(g, "exclude", false),
         h.decision === "exclude",
       ),
@@ -636,7 +660,48 @@ function render() {
     );
     const actions = [...card.querySelectorAll("button")];
     for (const i of [0, 1, 4, 5]) actions[i].classList.add("advanced-control");
-    if (m?.portraitBatch)
+    if (row.toggle) {
+      const toggle = button(
+        row.expanded ? "收起这组" : `展开 ${row.batch.length} 张`,
+        () => {
+          if (expandedBatches.has(row.key)) expandedBatches.delete(row.key);
+          else expandedBatches.add(row.key);
+          // Keep the clicked group in view, including after the first page.
+          const nextRows = galleryRows(
+            visible,
+            batches,
+            recommendations,
+            state,
+            expandedBatches,
+          );
+          const index = nextRows.findIndex((r) => r.key === row.key);
+          if (
+            index < offset ||
+            index >= offset + limit ||
+            (expandedBatches.has(row.key) &&
+              index + row.batch.length > offset + limit)
+          )
+            offset = Math.max(0, index);
+          render();
+          const focused = [...document.querySelectorAll(".batch-toggle")].find(
+            (b) => b.dataset.batchKey === row.key,
+          );
+          focused?.focus({ preventScroll: true });
+          focused?.closest("article").scrollIntoView({ block: "nearest" });
+        },
+      );
+      toggle.className = "batch-toggle";
+      toggle.dataset.batchKey = row.key;
+      toggle.setAttribute("aria-expanded", String(row.expanded));
+      const count = document.createElement("span");
+      count.className = "batch-count";
+      const pending = row.batch.filter((g) => state(g) === "protected").length;
+      count.textContent =
+        `${row.batch.length} 张 · 已选 ${row.batch.filter((g) => state(g) === "include").length}` +
+        (pending ? ` · 待复核 ${pending}` : "");
+      card.append(count, toggle);
+    }
+    if (m?.portraitBatch && moreTools)
       card.append(
         button("看这组全部", () => {
           const batch = batches.find((b) => b.some((x) => x.id === g.id));
@@ -651,7 +716,7 @@ function render() {
     $("grid").append(card);
     effortController?.observeGrid(card, g.id);
   }
-  $("more").hidden = visible.length <= limit;
+  $("more").hidden = rows.length <= limit;
   $("more").textContent =
     offset + limit < visible.length ? "下一页 60 组" : "回到第一页";
   renderPlan();
@@ -701,6 +766,13 @@ function renderPlan() {
     !["copying", "interrupted"].includes(session?.lastReport?.status);
   resumeButton.disabled = busy;
   const preview = currentPlan();
+  const organized = preview.layout === "organized";
+  $("include-protected-label").hidden = organized;
+  $("organization-note").textContent = organized
+    ? "已选、待复核、未选。复制到新文件夹，原件保留。"
+    : "仅复制已选照片，原件保留。";
+  $("copy").textContent = organized ? "整理到此文件夹" : "复制已选照片";
+  $("copy").hidden = !moreTools && !target;
   if (!busy && accepted && !acceptanceMatches(accepted, preview, groups)) {
     accepted = null;
     if (root) void save();
@@ -725,10 +797,10 @@ function renderPlan() {
   $("accept").textContent = confirmed
     ? moreTools
       ? "已接受整批推荐"
-      : "继续导出"
+      : "继续整理"
     : moreTools
       ? "接受整批推荐"
-      : "导出推荐";
+      : "整理照片";
   $("undo-accept").disabled = busy || !accepted;
   exportAccept.disabled = busy || !groups.length || confirmed;
   exportAccept.hidden = !moreTools && confirmed;
@@ -741,10 +813,23 @@ function renderPlan() {
       plan.fileCount +
       " 个原始文件 / " +
       (plan.bytes / 1024 / 1024).toFixed(1) +
-      " MB。目标内保留 Keepers/<源相对路径>。未分析及待复核 " +
+      (organized
+        ? " MB。目标按已选、待复核、未选分组。未分析及待复核 "
+        : " MB。目标内保留 Keepers/<源相对路径>。未分析及待复核 ") +
       plan.unprocessed.length +
       " 组。"
-    : `将复制 ${plan.groupCount} 组照片，共 ${plan.fileCount} 个文件（${(plan.bytes / 1024 / 1024).toFixed(1)} MB）。${plan.includeProtected ? "已包含待复核文件。" : "待复核文件暂不复制。"}`;
+    : organized
+      ? [
+          ["include", "已选"],
+          ["protected", "待复核"],
+          ["suppress", "未选"],
+        ]
+          .map(
+            ([decision, label]) =>
+              `${label} ${plan.groups.filter((g) => g.decision === decision).length}`,
+          )
+          .join(" · ") + `（${(plan.bytes / 1024 / 1024).toFixed(1)} MB）`
+      : `将复制 ${plan.groupCount} 组照片，共 ${plan.fileCount} 个文件（${(plan.bytes / 1024 / 1024).toFixed(1)} MB）。${plan.includeProtected ? "已包含待复核文件。" : "待复核文件暂不复制。"}`;
   $("unprocessed").textContent = JSON.stringify(
     {
       protected: plan.unprocessed,
@@ -884,10 +969,11 @@ function updateViewerActions() {
   $("viewer-next").disabled = busy || index >= groups.length - 1;
   $("viewer-keep").disabled = busy;
   $("viewer-exclude").disabled = busy;
+  $("viewer-exclude").textContent = moreTools ? "暂不导出" : "不选";
   $("viewer-decision").textContent = {
-    include: "已选入导出",
-    suppress: "暂不导出，原件保留",
-    protected: "待复核，尚未选入导出",
+    include: moreTools ? "已选入导出" : "已选",
+    suppress: moreTools ? "暂不导出，原件保留" : "未选",
+    protected: moreTools ? "待复核，尚未选入导出" : "待复核",
   }[state(g)];
 }
 function browseViewer(delta) {
@@ -1070,23 +1156,6 @@ $("mode").onchange = async () => {
   await effortController?.pauseForContextChange();
   if (!busy) recompute();
 };
-$("portrait").onchange = async () => {
-  portraitPreferenceExplicit = true;
-  $("portrait-budget").hidden = !$("portrait").checked;
-  if (!root || busy) return;
-  await effortController?.pauseForContextChange();
-  try {
-    await save();
-    await open(root);
-  } catch (error) {
-    message("人物设置保存失败，请重试；原件未改变：" + error.message);
-  }
-};
-$("portrait-keep").onchange = async () => {
-  if (!root) portraitPreferenceExplicit = true;
-  await effortController?.pauseForContextChange();
-  if (!busy) recompute();
-};
 $("portrait-scope-close").onclick = () => {
   portraitScope = null;
   chosen.clear();
@@ -1110,12 +1179,14 @@ function currentPlan() {
       human,
       recommendations,
       $("include-protected").checked,
+      { organize: $("output-layout").value === "organized" },
     ),
     preferences: {
       mode: $("mode").value,
       strength: $("strength").value,
       portrait: $("portrait").checked,
       portraitKeep: Number($("portrait-keep").value),
+      outputLayout: $("output-layout").value,
     },
   };
 }
@@ -1185,6 +1256,10 @@ $("compare-four").onclick = () => {
     ),
   );
 };
+$("output-layout").onchange = () => {
+  renderPlan();
+  if (root) void save();
+};
 $("include-protected").onchange = () => {
   renderPlan();
   if (root) void save();
@@ -1210,11 +1285,10 @@ $("target").onclick = async () => {
     await assertIndependent(root, picked);
     target = picked;
     output = null;
-    $("target-name").textContent =
-      "目标：" +
-      target.name +
-      " / 新建 PhotoCull_Output_<时间与随机标识>；确认后才写入。";
+    $("target-name").textContent = target.name + " / 新建整理文件夹";
     renderPlan();
+    if (!moreTools && accepted && plan.layout === "organized")
+      $("copy").click();
   } catch (e) {
     message(
       ["AbortError", "NotAllowedError", "SecurityError"].includes(e.name)
@@ -1228,7 +1302,7 @@ $("copy").onclick = () => {
   renderPlan();
   if (!accepted || busy || !target) return;
   $("confirm-text").textContent =
-    "复制 " +
+    (plan.layout === "organized" ? "按已选、待复核、未选分组复制 " : "复制 ") +
     plan.fileCount +
     " 个文件（" +
     (plan.bytes / 1024 / 1024).toFixed(1) +

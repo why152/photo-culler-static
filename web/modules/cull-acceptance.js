@@ -4,6 +4,7 @@ export function planSignature(plan, groups) {
   return JSON.stringify({
     algorithmVersion: ALGORITHM_VERSION,
     includeProtected: plan.includeProtected,
+    layout: plan.layout ?? "keepers",
     preferences: plan.preferences,
     groups: plan.groups,
     inventory: groups.map((g) => [g.id, g.fingerprint, g.sourceSHA ?? null]),

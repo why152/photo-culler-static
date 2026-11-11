@@ -20,6 +20,14 @@ if (!process.argv[2])
   );
 const source = resolve(process.argv[2]);
 const port = process.env.PORT ?? "4178";
+const samplePath = process.env.CULLER_SAMPLE_MANIFEST;
+const sample = samplePath
+  ? JSON.parse(await readFile(samplePath, "utf8"))
+  : null;
+assert.ok(
+  !sample ||
+    (sample.provenance === "source-inventory" && Array.isArray(sample.paths)),
+);
 const proxyPath = process.env.CULLER_PROXY_LABELS;
 const proxy = proxyPath ? JSON.parse(await readFile(proxyPath, "utf8")) : null;
 const reportPath = resolve(
@@ -89,6 +97,26 @@ async function snapshot(label) {
 }
 try {
   before = await snapshot("before");
+  const fixtureFiles = proxy
+    ? before.filter((f) =>
+        proxy.labels.some((label) => label.relativePath === f.path),
+      )
+    : sample
+      ? before.filter((f) => sample.paths.includes(f.path))
+      : before;
+  assert.ok(fixtureFiles.length, "Empty test selection");
+  if (sample)
+    assert.equal(
+      fixtureFiles.length,
+      new Set(sample.paths).size,
+      "Sample contains missing paths",
+    );
+  const fixtureBytes = fixtureFiles.reduce((n, f) => n + f.size, 0);
+  report.sample = {
+    files: fixtureFiles.length,
+    bytes: fixtureBytes,
+    fullFolder: !sample && !proxy,
+  };
   report.source = {
     files: before.length,
     bytes: before.reduce((n, f) => n + f.size, 0),
@@ -160,11 +188,11 @@ try {
   });
   if (
     report.fixtureActualQuota.quota - report.fixtureActualQuota.usage <
-    report.source.bytes * 2.1
+    fixtureBytes * 2.1
   ) {
     await cdp.send("Storage.overrideQuotaForOrigin", {
       origin: base,
-      quotaSize: Math.ceil(report.source.bytes * 2.2),
+      quotaSize: Math.ceil(fixtureBytes * 2.2),
     });
     report.fixtureQuotaOverride =
       "Test-only CDP quota override for isolated OPFS source/output copies.";
@@ -175,7 +203,7 @@ try {
   assert.ok(
     report.fixtureActualQuotaAfter.quota -
       report.fixtureActualQuotaAfter.usage >
-      report.source.bytes * 2.1,
+      fixtureBytes * 2.1,
     "Insufficient real test quota",
   );
   await page.evaluate(() => {
@@ -186,11 +214,6 @@ try {
     input.id = "real-files";
     document.body.append(input);
   });
-  const fixtureFiles = proxy
-    ? before.filter((f) =>
-        proxy.labels.some((label) => label.relativePath === f.path),
-      )
-    : before;
   await page
     .locator("#real-files")
     .setInputFiles(fixtureFiles.map((f) => join(source, f.path)));
@@ -335,6 +358,7 @@ try {
   if (proxy) {
     report.scope =
       "AI-proxy quality comparison on read-only source JPEG copies, all source bytes hashed before/after; no export and no human-preference acceptance claim.";
+    await page.locator("#tools-toggle").click();
     await page.locator("#benchmark-open").click();
     await page.locator("#benchmark-import").setInputFiles(resolve(proxyPath));
     await expect(page.locator("#feedback")).toContainText(
@@ -355,9 +379,8 @@ try {
       db.close();
       return rows[0].benchmark;
     });
-    const { evaluateBenchmark } = await import(
-      "../web/modules/cull-benchmark.js"
-    );
+    const { evaluateBenchmark } =
+      await import("../web/modules/cull-benchmark.js");
     report.proxyEvaluation = evaluateBenchmark(study);
     assert.equal(report.proxyEvaluation.total, fixtureFiles.length);
     assert.equal(report.proxyEvaluation.metricsProvenance, "ai-proxy");
@@ -365,7 +388,7 @@ try {
     report.study = study;
   } else {
     const expectedGroups = new Map();
-    for (const file of before) {
+    for (const file of fixtureFiles) {
       if (
         !/\.(jpe?g|png|webp|heic|heif|rw2|raw|cr2|cr3|nef|arw|dng|orf|raf|xmp|mov|mp4|m4v|avi)$/i.test(
           file.path,
@@ -414,18 +437,10 @@ try {
       detail: JSON.parse(document.querySelector("#unprocessed").textContent),
     }));
     report.defaultPlan = report.plan;
-    await page.locator("#include-protected").check();
-    await page
-      .getByRole("button", { name: "接受当前输出计划", exact: true })
-      .click();
-    report.plan = await page.evaluate(() => ({
-      summary: document.querySelector("#plan").textContent,
-      detail: JSON.parse(document.querySelector("#unprocessed").textContent),
-    }));
-    report.explicitProtectedInclusion = true;
+    await expect(page.locator("#output-layout")).toHaveValue("organized");
+    report.organizedAllGroups = true;
     // Cancel once before writing: the target must remain entirely empty.
     await page.locator("#target").click();
-    await page.locator("#copy").click();
     await page.locator("#confirm-cancel").click();
     assert.equal(
       await page.evaluate(
@@ -467,8 +482,35 @@ try {
           record.sourceSHA !== expected.get(record.source)
         )
           throw new Error("Export SHA does not match original baseline");
+        const expectedFolder = {
+          include: "已选",
+          protected: "待复核",
+          suppress: "未选",
+        }[record.decision];
+        if (record.destination !== expectedFolder + "/" + record.source)
+          throw new Error("Incorrect organized destination");
+        let directory = output;
+        const parts = record.destination.split("/");
+        for (const part of parts.slice(0, -1))
+          directory = await directory.getDirectoryHandle(part);
+        const copied = await (
+          await directory.getFileHandle(parts.at(-1))
+        ).getFile();
+        const actual = Array.from(
+          new Uint8Array(
+            await crypto.subtle.digest("SHA-256", await copied.arrayBuffer()),
+          ),
+          (x) => x.toString(16).padStart(2, "0"),
+        ).join("");
+        if (actual !== record.sourceSHA)
+          throw new Error("Actual output bytes differ");
         verified++;
       }
+      if (
+        manifest.layout !== "organized" ||
+        manifest.fileCount !== original.length
+      )
+        throw new Error("Organized output did not cover every sample member");
       const groupMembers = new Map();
       for (const file of original) {
         if (
@@ -521,7 +563,7 @@ try {
           reasons: g.machine?.reasons,
         })),
       };
-    }, before);
+    }, fixtureFiles);
     const warmStart = performance.now();
     await page.reload();
     await page.locator("#sessions button").first().click();

@@ -74,7 +74,8 @@
   </head>
   <body data-tools="simple">
     <header id="app-header">
-      <a href="./">Photo Culler</a><span class="badge">2.0 Beta</span
+      <a href="./">Photo Culler</a
+      ><span class="badge advanced-control">2.0 Beta</span
       ><span>原件始终保留 · 照片不上传</span
       ><a class="advanced-control" href="./legacy.html">1.0 图库与历史恢复</a>
       <div id="gallery-actions">
@@ -92,9 +93,15 @@
       </p>
       <section id="import-space">
         <h1>开始筛选照片</h1>
-        <p class="entry-intro">选择照片文件夹，自动整理推荐。原件始终保留。</p>
-        <div class="portrait-option">
-          <label><input id="portrait" type="checkbox" />自动挑选人物连拍</label>
+        <p class="entry-intro">选择文件夹，自动挑出好照片。</p>
+        <div class="portrait-option" hidden>
+          <label
+            ><input
+              id="portrait"
+              type="checkbox"
+              checked
+            />自动挑选人物连拍</label
+          >
           <label id="portrait-budget" class="advanced-control" hidden
             >每组推荐
             <select id="portrait-keep">
@@ -109,7 +116,7 @@
           </p>
         </div>
         <span id="choose-home"></span><button id="choose">选择照片文件夹</button
-        ><label class="advanced-control"
+        ><label hidden
           >模式
           <select id="mode">
             <option class="advanced-control" value="burst">
@@ -130,7 +137,7 @@
           <p>2. 看推荐<br /><small>想改选时，点照片放大查看</small></p>
           <p>3. 导出副本<br /><small>另选文件夹，确认后开始复制</small></p>
         </div>
-        <h2>最近工作会话</h2>
+        <h2 id="sessions-title">最近打开</h2>
         <div id="sessions"></div>
       </section>
       <section id="results-space" hidden>
@@ -146,9 +153,9 @@
             取消本批采纳
           </button>
           <div id="gallery-filters">
-            <button data-gallery-filter="shortlist" aria-pressed="true">
+            <button data-gallery-filter="shortlist" aria-pressed="false">
               推荐与待复核</button
-            ><button data-gallery-filter="all" aria-pressed="false">
+            ><button data-gallery-filter="all" aria-pressed="true">
               全部照片
             </button>
           </div>
@@ -159,7 +166,7 @@
               <option class="advanced-control" value="technical-review">
                 技术疑难与低曝光代表
               </option>
-              <option value="all">全部照片</option>
+              <option value="all" selected>全部照片</option>
               <option value="suppress">暂不导出</option>
               <option class="advanced-control" value="favorite">★精选</option>
               <option class="advanced-control" value="burst">连拍组</option>
@@ -173,18 +180,23 @@
         </p>
         <p id="portrait-scope" hidden>
           <span id="portrait-scope-text"></span>
-          <button id="portrait-scope-close">返回推荐</button>
+          <button id="portrait-scope-close">返回全部照片</button>
         </p>
         <div id="grid" class="grid"></div>
         <button id="more" hidden>再显示 60 组</button>
       </section>
       <section id="export-space" hidden>
         <button id="gallery-back">← 返回照片</button>
-        <h1>导出选好的照片</h1>
-        <p>
-          导出的照片会放进新文件夹。源文件夹里的所有原件都保留，不会移动或删除。
-        </p>
-        <label
+        <h1>整理照片</h1>
+        <p id="organization-note">按选择分到三个文件夹，原件保留。</p>
+        <label class="advanced-control"
+          >输出方式
+          <select id="output-layout">
+            <option value="organized" selected>分组整理全部照片</option>
+            <option value="keepers">仅复制已选照片</option>
+          </select>
+        </label>
+        <label id="include-protected-label"
           ><input
             id="include-protected"
             type="checkbox"
@@ -203,7 +215,7 @@
         >
           移入待排除区（可恢复）：当前不可用
         </button>
-        <details>
+        <details class="advanced-control">
           <summary>未分析、异常与跳过目录</summary>
           <pre id="unprocessed"></pre>
         </details>
@@ -211,11 +223,11 @@
       <p id="feedback" role="status" aria-live="polite"></p>
       <button id="cancel" hidden>取消当前操作</button
       ><button id="pause" hidden>暂停</button>
-      <details>
+      <details class="advanced-control">
         <summary>帮助、隐私与验收限制</summary>
         <p>
           JPEG/PNG/WebP 可分析；HEIC 取决于浏览器。RAW
-          不解码。没有可靠拍摄时间只进行精确重复候选判断。夜景、曝光包围、低清晰度和未知格式保守保留。规则排序只比较同组，不判艺术价值。人物增强可选启用：只从本站加载
+          不解码。没有可靠拍摄时间只进行精确重复候选判断。夜景、曝光包围、低清晰度和未知格式保守保留。规则排序只比较同组，不判艺术价值。人物分析自动进行：只从本站加载
           TensorFlow.js/WASM 模型，不使用 MediaPipe SDK、不上传照片。语义
           embedding 与表情审美判断仍延期。
           低曝光但存在连续清晰区域时可推荐同组代表，其余疑难仍保护。
@@ -248,9 +260,9 @@
       </div>
     </dialog>
     <dialog id="confirm">
-      <h2>确认复制原件</h2>
+      <h2>确认整理</h2>
       <p id="confirm-text"></p>
-      <button id="confirm-copy">确认复制</button
+      <button id="confirm-copy">确认整理</button
       ><button id="confirm-cancel">取消</button>
     </dialog>
     <script type="module" src="./auto.js"></script>

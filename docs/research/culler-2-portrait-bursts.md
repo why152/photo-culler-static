@@ -1,7 +1,7 @@
-# Opt-in portrait burst selection (beta.5)
+# Local portrait burst selection (beta.5)
 
 2026-11-11. Personal Mac Chrome scope, static vanilla app and read-only originals.
-This is an optional enhancement, not human preference or Stable acceptance.
+Original opt-in implementation evidence follows below. The later user-authorized automatic workflow is documented in [automatic workflow](culler-2-automatic-workflow.md); no human preference or Stable acceptance is implied.
 
 ## Reuse and gates
 
