@@ -68,6 +68,7 @@ test("built root: readonly import, workers, protected formats, comparisons, expo
     requests.push({ url: r.url(), method: r.method() }),
   );
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -200,6 +201,7 @@ test("read directory works without native move support, v1 remains reachable", a
     delete FileSystemFileHandle.prototype.move;
   });
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await expect(page.locator("#choose")).toBeEnabled();
   await page.getByRole("link", { name: "1.0 图库与历史恢复" }).click();
   await expect(page.locator("#choose-folder")).toBeEnabled();
@@ -209,6 +211,7 @@ test("an interrupted copy resumes after reload using its saved output without ch
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -256,6 +259,7 @@ test("accept saves the exact plan, undo gates copy, changes invalidate it, and r
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -336,6 +340,7 @@ test("favorite-filtered paging wraps 90 results instead of using the whole inven
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -390,6 +395,7 @@ test("AI labels import locally by path and SHA, persist separately and require i
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -475,6 +481,7 @@ test("review shortcuts undo independently, narrow survey falls back, inputs keep
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -528,6 +535,7 @@ for (const priorAlgorithm of ["rules-2.0-beta.2", "rules-2.0-beta.3"])
     page,
   }) => {
     await page.goto("./");
+    await page.locator("#tools-toggle").click();
     await fixture(page);
     await page.locator("#choose").click();
     await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -590,6 +598,7 @@ test("changed source invalidates a saved acceptance without aborting session ana
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -614,6 +623,7 @@ test("actual resized, recompressed and cropped image versions remain safe, origi
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await page.evaluate(async () => {
     const storage = await navigator.storage.getDirectory(),
       root = await storage.getDirectoryHandle("versions", { create: true });
@@ -659,7 +669,7 @@ test("actual resized, recompressed and cropped image versions remain safe, origi
   const states = await page.locator(".card").evaluateAll((cards) =>
     cards.map((card) => ({
       name: card.querySelector("img")?.alt,
-      detail: card.querySelectorAll("p")[1].textContent,
+      detail: card.querySelector(".recommendation-detail").textContent,
     })),
   );
   expect(states.every((s) => !s.detail.startsWith("暂不导出"))).toBe(true);
@@ -685,6 +695,7 @@ test("target permission denial explains the safe fallback and allows retry witho
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -764,6 +775,7 @@ test("downloaded labels restore after browser study loss, invalid imports or dec
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -852,6 +864,7 @@ test("label save failure preserves prior draft and position, then retry persists
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -894,6 +907,7 @@ test("low-key representative keeps protected peers and technical-review filter r
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory(),
       source = await root.getDirectoryHandle("synthetic-low-key", {
@@ -954,6 +968,7 @@ test("opt-in local effort records observe image opens, persist paused and preser
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -1067,6 +1082,7 @@ test("effort storage failure pauses the observation and leaves photo-review stat
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -1102,6 +1118,7 @@ test("switching roots pauses effort in its original session without leaking it i
   page,
 }) => {
   await page.goto("./");
+  await page.locator("#tools-toggle").click();
   await fixture(page);
   await page.locator("#choose").click();
   await expect(page.locator("#global")).toContainText("本地分析完成");
@@ -1157,4 +1174,79 @@ test("switching roots pauses effort in its original session without leaking it i
   await expect(page.locator("#global")).toContainText("camera · 7");
   await expect(page.locator("#effort-summary")).toContainText("已暂停");
   await expect(page.locator("#effort-summary")).toContainText("打开大图 1/4");
+});
+
+test("simple workflow keeps one next step, optional tools and protected reacceptance accessible", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await expect(page.locator("#tools-toggle")).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  await expect(page.locator("#mode")).not.toBeVisible();
+  await expect(page.locator("#benchmark-open")).not.toBeVisible();
+  await page.screenshot({
+    path: "output/simple-workflow/first-run.png",
+    fullPage: true,
+  });
+  await fixture(page);
+  await page.locator("#choose").click();
+  await expect(page.locator("#global")).toContainText("本地分析完成");
+  await expect(page.locator("#accept")).toHaveText("下一步：导出推荐照片");
+  await expect(page.locator("#simple-result-guide")).toContainText("暂不选入");
+  await expect(page.locator("#effort-open")).not.toBeVisible();
+  await expect(
+    page
+      .locator(".card")
+      .first()
+      .getByRole("button", { name: "保留", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator(".card")
+      .first()
+      .getByRole("button", { name: "拆出连拍", exact: true }),
+  ).not.toBeVisible();
+  await page.locator(".card img").first().click();
+  await expect(page.locator("#compare")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.screenshot({
+    path: "output/simple-workflow/results.png",
+    fullPage: true,
+  });
+  await page.locator("#accept").click();
+  await expect(page.locator("#export-space")).toBeVisible();
+  await page.screenshot({
+    path: "output/simple-workflow/export.png",
+    fullPage: true,
+  });
+  await expect(page.locator("#copy")).toBeDisabled();
+  await page.locator("#include-protected").check();
+  await page.getByRole("button", { name: "确认当前选择", exact: true }).click();
+  await expect(page.locator("#acceptance-status-export")).toContainText(
+    "已采纳",
+  );
+  await page.locator("#target").click();
+  await page.locator("#copy").click();
+  await expect(page.locator("#confirm-text")).toContainText("原件只读");
+  await page.locator("#confirm-cancel").click();
+  expect(
+    await page.evaluate(
+      async () => (await Array.fromAsync(window.__target.values())).length,
+    ),
+  ).toBe(0);
+  await page.locator('[data-space="results"]').click();
+  await expect(page.locator("#accept")).toHaveText("继续：选择保存位置");
+  await page.locator("#accept").click();
+  await expect(page.locator("#export-space")).toBeVisible();
+  await page.locator('[data-space="results"]').click();
+  await page.locator("#tools-toggle").click();
+  await expect(page.locator("#effort-open")).toBeVisible();
+  await expect(page.locator("#compare-two")).toBeVisible();
+  await page.reload();
+  await expect(page.locator("#tools-toggle")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
 });

@@ -291,3 +291,36 @@ html:fullscreen #compare {
 #benchmark label {
   flex-wrap: wrap;
 }
+
+body[data-tools="simple"] .advanced-control {
+  display: none !important;
+}
+#tools-toggle {
+  float: right;
+  background: transparent;
+  color: #b8bbc4;
+}
+#target,
+#copy:not(:disabled) {
+  background: #e2c48b;
+  color: #201c16;
+}
+body[data-tools="simple"] .card input {
+  display: none;
+}
+body[data-tools="simple"] #acceptance-status-results {
+  display: none;
+}
+body[data-tools="simple"] .card button {
+  min-width: 88px;
+}
+@media (max-width: 700px) {
+  #tools-toggle {
+    float: none;
+    margin-bottom: 12px;
+  }
+}
+
+body[data-tools="advanced"] .simple-card-status {
+  display: none;
+}
