@@ -3,7 +3,7 @@ import {
   portraitQuality,
   usablePortrait,
 } from "./portrait-evidence.js";
-import { cluster, similarityKind } from "./cull-similarity.js";
+import { cluster, similarityKind, portraitPair } from "./cull-similarity.js";
 import { distance } from "./cull-similarity.js";
 import { ALGORITHM_VERSION } from "./cull-session.js";
 import { lowKeyEvidence } from "./cull-exposure.js";
@@ -29,11 +29,17 @@ export function rank(
   const batches = cluster(groups, { portrait: portrait && mode === "burst" }),
     recommendations = {};
   for (const batch of batches) {
-    const portraitBatch =
+    const hasPortrait =
       portrait &&
       mode === "burst" &&
       batch.length > 1 &&
       batch.every(usablePortrait);
+    const ambiguousPortrait =
+      hasPortrait &&
+      !batch.every((g, i) =>
+        batch.slice(i + 1).every((other) => portraitPair(g, other)),
+      );
+    const portraitBatch = hasPortrait && !ambiguousPortrait;
     const faceScale = portraitBatch
       ? Math.max(1e-6, ...batch.map((g) => portraitQuality(g).sharpness))
       : null;
@@ -59,7 +65,9 @@ export function rank(
             (a.analysis?.sourceDimensions?.height ?? 0) ||
         a.path.localeCompare(b.path),
     );
-    const kind = similarityKind(batch);
+    const kind = similarityKind(batch, {
+      portrait: portrait && mode === "burst",
+    });
     const uncertain =
       kind === "same-image-version" ||
       kind === "unknown" ||
@@ -124,9 +132,11 @@ export function rank(
             ? "protected"
             : include
               ? "include"
-              : "suppress",
+              : ambiguousPortrait
+                ? "protected"
+                : "suppress",
         confidence:
-          uncertain || frameProtected(g)
+          uncertain || frameProtected(g) || ambiguousPortrait
             ? "low"
             : batch.length > 1
               ? "medium"
@@ -138,13 +148,15 @@ export function rank(
               ? "疑似缩放、重压缩或编辑版本，保留全部供复核"
               : uncertain
                 ? "题材、特殊序列或读取存在不确定性，请复核"
-                : batch.length > 1
-                  ? portraitBatch
-                    ? "同场景人物连拍：优先脸部清晰、可靠的睁眼证据；侧脸/小脸不判断表情，其余原件保留"
-                    : strategy === "local-focus"
-                      ? "同组局部清晰区域与对比度归一化排序；不判断艺术价值"
-                      : "同组清晰度、曝光与视觉差异排序"
-                  : "独立瞬间，保留候选",
+                : ambiguousPortrait
+                  ? "同场景近似连拍：推荐清晰代表，人脸对应不确定的其他帧保留待复核"
+                  : batch.length > 1
+                    ? portraitBatch
+                      ? "同场景人物连拍：优先脸部清晰、可靠的睁眼证据；侧脸/小脸不判断表情，其余原件保留"
+                      : strategy === "local-focus"
+                        ? "同组局部清晰区域与对比度归一化排序；不判断艺术价值"
+                        : "同组清晰度、曝光与视觉差异排序"
+                    : "独立瞬间，保留候选",
         ],
         ...(portraitBatch ? { portraitBatch: true, portraitKeep: k } : {}),
         algorithmVersion: ALGORITHM_VERSION,

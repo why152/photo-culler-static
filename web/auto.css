@@ -751,7 +751,66 @@ body[data-tools="simple"] #gallery-summary {
   font-size: 13px;
   margin-bottom: 24px;
 }
-body[data-tools="simple"] .batch-bar { margin-bottom: -16px; }
-body[data-tools="simple"] .batch-bar > span { white-space: nowrap; }
-body[data-tools="simple"] .batch-bar .batch-toggle { width: auto; flex: 0 0 auto; min-width: 44px; }
-.batch-end { grid-column: 1 / -1; height: 0; border-top: 1px solid #ffffff12; margin-top: -12px; }
+body[data-tools="simple"] .batch-bar {
+  margin-bottom: -16px;
+}
+body[data-tools="simple"] .batch-bar > span {
+  white-space: nowrap;
+}
+body[data-tools="simple"] .batch-bar .batch-toggle {
+  width: auto;
+  flex: 0 0 auto;
+  min-width: 44px;
+}
+.batch-end {
+  grid-column: 1 / -1;
+  height: 0;
+  border-top: 1px solid #ffffff12;
+  margin-top: -12px;
+}
+/* Continuous viewport: the old row window bounds DOM, never the user's queue. */
+#grid.continuous-review {
+  display: block;
+  overflow-anchor: none;
+}
+.review-row {
+  box-sizing: border-box;
+}
+.review-cards {
+  display: grid;
+  grid-template-columns: repeat(var(--review-columns), minmax(0, 1fr));
+  column-gap: var(--review-column-gap);
+  padding-bottom: var(--review-row-gap);
+  align-items: start;
+}
+.review-header {
+  padding-bottom: 8px;
+}
+.review-row .batch-bar {
+  height: 44px;
+  padding: 0;
+  margin: 0 !important;
+}
+.review-end .batch-end {
+  margin: 0;
+}
+body[data-tools="advanced"] #grid[data-virtual="true"] .card {
+  height: 580px;
+  overflow-y: auto;
+}
+body[data-tools="advanced"] #grid[data-virtual="false"] .review-cards {
+  height: auto !important;
+}
+.review-spacer {
+  pointer-events: none;
+}
+body[data-tools="simple"] #review-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 10px 0;
+  background: #141416;
+}
+body[data-tools="simple"] #review-toolbar .toolbar {
+  margin-bottom: 0;
+}

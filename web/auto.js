@@ -24,13 +24,14 @@ import {
   acceptPlan,
   acceptanceMatches,
   defaultStrength,
-  nextPageOffset,
 } from "./modules/cull-acceptance.js";
 import { ReviewDecisionHistory } from "./modules/review-persistence.js";
 import { installBenchmark } from "./modules/cull-benchmark-ui.js";
 import { installReviewEffort } from "./modules/review-effort-ui.js";
 import { ViewerZoom } from "./modules/viewer-zoom.js";
 import { PreviewUrlPool } from "./modules/preview-url-pool.js";
+import { GridRenderWindow } from "./modules/grid-render-window.js";
+import { reviewLayout, unitForPhoto } from "./modules/cull-gallery-layout.js";
 const $ = (id) => document.getElementById(id);
 const store = new BrowserReviewStore();
 let portraitScope = null;
@@ -88,8 +89,6 @@ let controller = null,
   worker = null,
   busy = false,
   paused = false,
-  limit = 60,
-  offset = 0,
   saveQueue = Promise.resolve(),
   persistenceError = null;
 let savePending = 0;
@@ -99,7 +98,12 @@ let target = null,
   plan = null,
   accepted = null,
   view = "import";
-let visibleCount = 0;
+const reviewWindow = new GridRenderWindow({ batchSize: 24, overscanRows: 3 });
+let reviewFrame = null,
+  resetReviewScroll = true,
+  reviewSnapshot = null;
+let renderedSignature = "",
+  rowNodes = new Map();
 let viewerFullscreen = false;
 let decisionHistory = new ReviewDecisionHistory();
 const chosen = new Set(),
@@ -278,7 +282,7 @@ async function open(directory) {
     $("global").textContent = directory.name + " · 正在读取子文件夹…";
     if (root) await save();
     root = directory;
-    offset = 0;
+    resetReviewScroll = true;
     target = null;
     output = null;
     chosen.clear();
@@ -319,10 +323,15 @@ async function open(directory) {
     worker = new Worker(new URL("./modules/cull-worker.js", import.meta.url), {
       type: "module",
     });
-    let cache = null;
+    let cache = null,
+      previousCache = null;
     try {
       cache = await store.analysisScope(root, {
         algorithmVersion: ALGORITHM_VERSION,
+      });
+      // beta.6 changes ranking/presentation only; reuse verified beta.5 pixels.
+      previousCache = await store.analysisScope(root, {
+        algorithmVersion: "rules-2.0-beta.5",
       });
     } catch {
       message("分析缓存不可用，继续本地重新计算。");
@@ -356,7 +365,9 @@ async function open(directory) {
           });
           let cached = null;
           try {
-            cached = await cache?.loadAnalysis(key);
+            cached =
+              (await cache?.loadAnalysis(key)) ??
+              (await previousCache?.loadAnalysis(key));
           } catch {
             /* Cache never blocks analysis. */
           }
@@ -551,31 +562,60 @@ async function togglePhoto(group, restoreFocus = true) {
     });
   }
 }
-function toggleBatch(row, visible) {
+function toggleBatch(row) {
+  const photo = row.group.id;
+  const top = [...document.querySelectorAll("#grid .card")]
+    .find((c) => c.dataset.groupId === photo)
+    ?.getBoundingClientRect().top;
   if (expandedBatches.has(row.key)) expandedBatches.delete(row.key);
   else expandedBatches.add(row.key);
-  const nextRows = galleryRows(
-    visible,
-    batches,
-    recommendations,
-    state,
-    expandedBatches,
-  );
-  const index = nextRows.findIndex((r) => r.key === row.key);
-  if (
-    index < offset ||
-    index >= offset + limit ||
-    (expandedBatches.has(row.key) && index + row.batch.length > offset + limit)
-  )
-    offset = Math.max(0, index);
-  render();
+  render({ anchor: { id: photo, top: top ?? 120 } });
   const focused = [...document.querySelectorAll(".batch-toggle")].find(
     (b) => b.dataset.batchKey === row.key,
   );
   focused?.focus({ preventScroll: true });
-  focused?.closest(".batch-bar, article").scrollIntoView({ block: "nearest" });
+  if (focused && !moreTools) {
+    const toolbarBottom = $("review-toolbar").getBoundingClientRect().bottom;
+    const top = focused.getBoundingClientRect().top;
+    if (top < toolbarBottom + 8)
+      window.scrollBy({ top: top - toolbarBottom - 8 });
+  }
 }
-function render() {
+function makeBatchHeader(row) {
+  const bar = document.createElement("div");
+  bar.className = "batch-bar";
+  const label = document.createElement("span");
+  label.textContent = `${row.batch.length} 张 · 已选 ${row.batch.filter((x) => state(x) === "include").length}`;
+  const toggle = button("收起", () => toggleBatch(row));
+  toggle.className = "batch-toggle";
+  toggle.dataset.batchKey = row.key;
+  toggle.setAttribute("aria-expanded", "true");
+  toggle.setAttribute("aria-label", "收起这组");
+  bar.append(label, toggle);
+  return bar;
+}
+function reviewGeometry() {
+  const grid = $("grid"),
+    width = Math.max(1, grid.clientWidth);
+  const gap = moreTools ? 14 : innerWidth <= 700 ? 12 : 18;
+  const columns =
+    !moreTools && innerWidth <= 700
+      ? 2
+      : Math.max(
+          1,
+          Math.floor((width + gap) / ((moreTools ? 240 : 190) + gap)),
+        );
+  return {
+    width,
+    gap,
+    columns,
+    rowGap: moreTools ? 14 : 26,
+    advanced: moreTools,
+  };
+}
+function render(options = {}) {
+  const scrollOnly = options.scrollOnly === true;
+
   const stats = { include: 0, protected: 0, suppress: 0, unprocessed: 0 };
   for (const g of groups) {
     stats[state(g)]++;
@@ -622,225 +662,379 @@ function render() {
     !moreTools && !portraitScope
       ? galleryRows(visible, batches, recommendations, state, expandedBatches)
       : visible.map((group) => ({ group }));
-  visibleCount = rows.length;
-  if (offset >= visibleCount) offset = 0;
-  // Reuse the existing URL pool so choices do not reload unchanged photos.
-  // Retain only this bounded page; release departed photos immediately.
-  const pageRows = rows.slice(offset, offset + limit);
+  const geometry = reviewGeometry();
+  const layout = reviewLayout(rows, geometry);
+  const gridTop = $("grid").getBoundingClientRect().top + scrollY;
+  const offsets = [0];
+  for (const unit of layout.units) offsets.push(offsets.at(-1) + unit.height);
+  if (resetReviewScroll && !$("results-space").hidden) {
+    resetReviewScroll = false;
+    if (scrollY > gridTop) window.scrollTo({ top: Math.max(0, gridTop - 110) });
+  }
+  let desiredScroll = null;
+  if (options.anchor) {
+    const i = unitForPhoto(layout.units, options.anchor.id);
+    if (i >= 0)
+      desiredScroll = Math.max(0, gridTop + offsets[i] - options.anchor.top);
+  }
+  reviewWindow.batchSize = Math.max(1, Math.floor(120 / geometry.columns));
+  const range = reviewWindow.updateVariable(layout.units, {
+    scrollTop: Math.max(0, (desiredScroll ?? scrollY) - gridTop),
+    viewportHeight: innerHeight,
+  });
+  const signature = [
+    geometry.width,
+    geometry.columns,
+    moreTools,
+    range.start,
+    range.end,
+    ...range.groups.map((u) => u.key),
+  ].join(";");
+  reviewSnapshot = { rows, layout, range, geometry, gridTop };
+  if (scrollOnly && signature === renderedSignature) return;
+  renderedSignature = signature;
+  const pageRows = range.groups.flatMap((unit) => unit.cards ?? []);
   gridPreviews.retain(pageRows.map((row) => row.group.id));
   effortController?.resetGrid();
-  $("grid").replaceChildren();
-  for (const row of pageRows) {
-    const g = row.group;
-    const card = document.createElement("article");
-    card.className = "card";
-    card.dataset.groupId = g.id;
-    card.dataset.decision = state(g);
-    const box = document.createElement("input");
-    box.className = "advanced-control";
-    box.type = "checkbox";
-    box.checked = chosen.has(g.id);
-    box.setAttribute("aria-label", "比较 " + g.path);
-    box.onchange = () => {
-      if (box.checked && chosen.size >= 4) {
-        box.checked = false;
-        message("最多比较 4 组");
-        return;
-      }
-      if (box.checked) chosen.add(g.id);
-      else chosen.delete(g.id);
-    };
-    card.append(box);
-    const media = document.createElement("div");
-    media.className = "photo-media";
-    card.append(media);
-    if (row.batch) {
-      card.dataset.batchKey = row.key;
-      card.dataset.batchExpanded = String(row.expanded);
-    }
-    if (row.toggle && !row.expanded) card.classList.add("photo-stack");
-    if (g.analysis?.thumbnail) {
-      const img = document.createElement("img");
-      img.src = gridPreviews.urlFor(g.id, g.analysis.thumbnail);
-      img.alt = g.path;
-      const openPhoto = () =>
-        row.toggle && !row.expanded
-          ? toggleBatch(row, visible)
-          : void compare([g]);
-      img.onclick = openPhoto;
-      img.setAttribute("role", "button");
-      img.setAttribute(
-        "aria-label",
-        row.toggle && !row.expanded
-          ? `查看这组 ${row.batch.length} 张`
-          : `查看 ${g.path}`,
-      );
-      img.tabIndex = 0;
-      img.onkeydown = (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          openPhoto();
-        }
-      };
-      media.append(img);
-    } else {
-      const placeholder = document.createElement("div");
-      placeholder.className = "media-placeholder";
-      placeholder.textContent = g.members.some((m) =>
-        /\.(mov|mp4|m4v|avi)$/i.test(m.path),
-      )
-        ? "视频"
-        : g.members.some((m) =>
-              /\.(rw2|raw|cr2|cr3|nef|arw|dng|orf|raf)$/i.test(m.path),
-            )
-          ? "RAW"
-          : "无法预览";
-      media.append(placeholder);
-    }
-    const selection = button("", () => void togglePhoto(g));
-    selection.className = "photo-select simple-control";
-    selection.append(selectionIcon());
-    setSelectionControl(selection, g);
-    media.append(selection);
-    const name = document.createElement("p");
-    name.className = "photo-name";
-    name.textContent = g.path;
-    name.title = g.path;
-    const memberCount = document.createElement("small");
-    memberCount.className = "advanced-control";
-    memberCount.textContent = " · " + g.members.length + " 个原始文件";
-    name.append(memberCount);
-    card.append(name);
-    const detail = document.createElement("p");
-    const m = recommendations[g.id];
-    detail.className = "recommendation-detail advanced-control";
-    const status = document.createElement("p");
-    status.className = "simple-card-status";
-    const manual =
-      human[g.id]?.favorite ||
-      ["keep", "exclude", "review_later"].includes(human[g.id]?.decision);
-    card.dataset.origin = manual ? "manual" : "auto";
-    status.textContent =
-      state(g) === "protected" ? "待复核" : manual ? "手动" : "自动";
-    status.title = `${manual ? "手动" : "自动"}${state(g) === "include" ? "已选" : state(g) === "suppress" ? "未选" : "待复核"}`;
-    status.setAttribute("aria-label", status.title);
-    const portrait = g.analysis?.portrait;
-    if (portrait?.faces?.length) {
-      const faceStatus = document.createElement("p");
-      faceStatus.className = "advanced-control";
-      const portraitBatch = m?.portraitBatch
-        ? batches.find((b) => b.some((x) => x.id === g.id))
-        : null;
-      faceStatus.textContent = portraitBatch
-        ? `人物连拍 · 同组 ${portraitBatch.length} 张 · 自动推荐 ${portraitBatch.filter((x) => recommendations[x.id]?.plan === "include").length} 张 / 待复核 ${portraitBatch.filter((x) => recommendations[x.id]?.plan === "protected").length} 张`
-        : "检测到人脸 · 未确定为同一连拍";
-      card.append(faceStatus);
-    }
-    card.append(status);
-    detail.textContent =
-      { include: "建议保留", protected: "待复核 / 保护", suppress: "暂不导出" }[
-        state(g)
-      ] +
-      " · " +
-      (m?.reasons?.join("；") ?? g.error ?? "未分析") +
-      (m
-        ? " · " +
-          ({
-            exact: "同字节重复",
-            "same-image-version": "疑似同图版本",
-            burst: "连拍",
-            unique: "独立照片",
-            unknown: "关系未知",
-          }[m.similarityKind] ?? "关系未知") +
-          " · 同组 #" +
-          m.rank
-        : "");
-    card.append(detail);
-    const h = human[g.id] ?? {};
-    card.append(
-      button("拆出连拍", () => {
-        if (busy) return;
-        g.manualSplit = true;
-        session.splits = [...new Set([...(session.splits ?? []), g.id])];
-        recompute();
-      }),
-      button(
-        h.favorite ? "★ 精选" : "☆ 精选",
-        () => void decide(g, "keep", !h.favorite),
-        h.favorite,
-      ),
-      button(
-        "保留",
-        () => void decide(g, "keep", h.favorite),
-        h.decision === "keep",
-      ),
-      button(
-        moreTools ? "暂不导出" : "不选",
-        () => void decide(g, "exclude", false),
-        h.decision === "exclude",
-      ),
-      button(
-        "稍后复核",
-        () => void decide(g, "review_later"),
-        h.decision === "review_later",
-      ),
-      button("恢复机器建议", () => void decide(g, "unreviewed")),
-    );
-    const actions = [...card.querySelectorAll("button")];
-    // The overlay toggle is separate from advanced review/compare controls.
-    for (const action of actions)
-      if (action !== selection) action.classList.add("advanced-control");
-    if (row.toggle) {
-      const toggle = button(
-        row.expanded ? "收起" : `${row.batch.length} 张`,
-        () => toggleBatch(row, visible),
-      );
-      toggle.className = "batch-toggle";
-      toggle.dataset.batchKey = row.key;
-      toggle.setAttribute("aria-expanded", String(row.expanded));
-      toggle.setAttribute(
-        "aria-label",
-        row.expanded ? "收起这组" : `展开 ${row.batch.length} 张`,
-      );
-      if (row.expanded) {
-        const bar = document.createElement("div");
-        bar.className = "batch-bar";
-        const label = document.createElement("span");
-        label.textContent = `${row.batch.length} 张 · 已选 ${row.batch.filter((x) => state(x) === "include").length}`;
-        bar.append(label, toggle);
-        $("grid").append(bar);
-      } else {
-        toggle.title = `${row.batch.length} 张 · 已选 ${row.batch.filter((x) => state(x) === "include").length}`;
-        media.append(toggle);
+  const focused = document.activeElement;
+  const focusCard = $("grid").contains(focused)
+    ? focused.closest(".card")
+    : null;
+  const focusId = focusCard?.dataset.groupId;
+  const focusSelector = focused?.matches("[data-photo-select]")
+    ? "[data-photo-select]"
+    : "img";
+  const fragment = document.createDocumentFragment();
+  const spacer = (height) => {
+    const n = document.createElement("div");
+    n.className = "review-spacer";
+    n.setAttribute("aria-hidden", "true");
+    n.style.height = height + "px";
+    return n;
+  };
+  if (range.topOffset) fragment.append(spacer(range.topOffset));
+  const nextNodes = new Map();
+  const unitNodes = new Map();
+  for (const unit of range.groups) {
+    let node = scrollOnly ? rowNodes.get(unit.key) : null;
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "review-row review-" + unit.kind;
+      if (unit.kind === "header") node.append(makeBatchHeader(unit.row));
+      if (unit.kind === "end") {
+        const end = document.createElement("div");
+        end.className = "batch-end";
+        node.append(end);
       }
     }
-    if (m?.portraitBatch && moreTools)
-      card.append(
-        button("看这组全部", () => {
-          const batch = batches.find((b) => b.some((x) => x.id === g.id));
-          portraitScope = new Set(batch.map((x) => x.id));
-          chosen.clear();
-          offset = 0;
-          render();
-          $("portrait-scope").scrollIntoView({ block: "start" });
-          $("portrait-scope-close").focus({ preventScroll: true });
-        }),
-      );
-    $("grid").append(card);
-    if (row.expanded && row.last) {
-      const end = document.createElement("div");
-      end.className = "batch-end";
-      end.setAttribute("aria-hidden", "true");
-      $("grid").append(end);
-    }
-    effortController?.observeGrid(card, g.id);
+    node.style.height = unit.height + "px";
+    node.style.setProperty("--review-columns", geometry.columns);
+    node.style.setProperty("--review-column-gap", geometry.gap + "px");
+    node.style.setProperty("--review-row-gap", geometry.rowGap + "px");
+    if (!scrollOnly || !rowNodes.has(unit.key))
+      node.dataset.needsCards = "true";
+    nextNodes.set(unit.key, node);
+    unitNodes.set(unit, node);
+    fragment.append(node);
   }
-  $("more").hidden = rows.length <= limit;
-  $("more").textContent =
-    offset + limit < rows.length ? "下一页 60 组" : "回到第一页";
-  renderPlan();
-  updateViewerActions();
+  for (const unit of range.groups) {
+    const parent = unitNodes.get(unit);
+    if (unit.kind !== "cards" || parent.dataset.needsCards !== "true") continue;
+    delete parent.dataset.needsCards;
+    for (const row of unit.cards) {
+      const g = row.group;
+      const card = document.createElement("article");
+      card.className = "card";
+      card.dataset.groupId = g.id;
+      card.setAttribute("aria-posinset", String(rows.indexOf(row) + 1));
+      card.setAttribute("aria-setsize", String(rows.length));
+      card.dataset.decision = state(g);
+      const box = document.createElement("input");
+      box.className = "advanced-control";
+      box.type = "checkbox";
+      box.checked = chosen.has(g.id);
+      box.setAttribute("aria-label", "比较 " + g.path);
+      box.onchange = () => {
+        if (box.checked && chosen.size >= 4) {
+          box.checked = false;
+          message("最多比较 4 组");
+          return;
+        }
+        if (box.checked) chosen.add(g.id);
+        else chosen.delete(g.id);
+      };
+      card.append(box);
+      const media = document.createElement("div");
+      media.className = "photo-media";
+      card.append(media);
+      if (row.batch) {
+        card.dataset.batchKey = row.key;
+        card.dataset.batchExpanded = String(row.expanded);
+      }
+      if (row.toggle && !row.expanded) card.classList.add("photo-stack");
+      if (g.analysis?.thumbnail) {
+        const img = document.createElement("img");
+        img.src = gridPreviews.urlFor(g.id, g.analysis.thumbnail);
+        img.alt = g.path;
+        const openPhoto = () =>
+          row.toggle && !row.expanded ? toggleBatch(row) : void compare([g]);
+        img.onclick = openPhoto;
+        img.setAttribute("role", "button");
+        img.setAttribute(
+          "aria-label",
+          row.toggle && !row.expanded
+            ? `查看这组 ${row.batch.length} 张`
+            : `查看 ${g.path}`,
+        );
+        img.tabIndex = 0;
+        img.onkeydown = (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openPhoto();
+          }
+        };
+        media.append(img);
+      } else {
+        const placeholder = document.createElement("div");
+        placeholder.className = "media-placeholder";
+        placeholder.textContent = g.members.some((m) =>
+          /\.(mov|mp4|m4v|avi)$/i.test(m.path),
+        )
+          ? "视频"
+          : g.members.some((m) =>
+                /\.(rw2|raw|cr2|cr3|nef|arw|dng|orf|raf)$/i.test(m.path),
+              )
+            ? "RAW"
+            : "无法预览";
+        media.append(placeholder);
+      }
+      const selection = button("", () => void togglePhoto(g));
+      selection.className = "photo-select simple-control";
+      selection.append(selectionIcon());
+      setSelectionControl(selection, g);
+      media.append(selection);
+      const name = document.createElement("p");
+      name.className = "photo-name";
+      name.textContent = g.path;
+      name.title = g.path;
+      const memberCount = document.createElement("small");
+      memberCount.className = "advanced-control";
+      memberCount.textContent = " · " + g.members.length + " 个原始文件";
+      name.append(memberCount);
+      card.append(name);
+      const detail = document.createElement("p");
+      const m = recommendations[g.id];
+      detail.className = "recommendation-detail advanced-control";
+      const status = document.createElement("p");
+      status.className = "simple-card-status";
+      const manual =
+        human[g.id]?.favorite ||
+        ["keep", "exclude", "review_later"].includes(human[g.id]?.decision);
+      card.dataset.origin = manual ? "manual" : "auto";
+      status.textContent =
+        state(g) === "protected" ? "待复核" : manual ? "手动" : "自动";
+      status.title = `${manual ? "手动" : "自动"}${state(g) === "include" ? "已选" : state(g) === "suppress" ? "未选" : "待复核"}`;
+      status.setAttribute("aria-label", status.title);
+      const portrait = g.analysis?.portrait;
+      if (portrait?.faces?.length) {
+        const faceStatus = document.createElement("p");
+        faceStatus.className = "advanced-control";
+        const portraitBatch = m?.portraitBatch
+          ? batches.find((b) => b.some((x) => x.id === g.id))
+          : null;
+        faceStatus.textContent = portraitBatch
+          ? `人物连拍 · 同组 ${portraitBatch.length} 张 · 自动推荐 ${portraitBatch.filter((x) => recommendations[x.id]?.plan === "include").length} 张 / 待复核 ${portraitBatch.filter((x) => recommendations[x.id]?.plan === "protected").length} 张`
+          : "检测到人脸 · 未确定为同一连拍";
+        card.append(faceStatus);
+      }
+      card.append(status);
+      detail.textContent =
+        {
+          include: "建议保留",
+          protected: "待复核 / 保护",
+          suppress: "暂不导出",
+        }[state(g)] +
+        " · " +
+        (m?.reasons?.join("；") ?? g.error ?? "未分析") +
+        (m
+          ? " · " +
+            ({
+              exact: "同字节重复",
+              "same-image-version": "疑似同图版本",
+              burst: "连拍",
+              unique: "独立照片",
+              unknown: "关系未知",
+            }[m.similarityKind] ?? "关系未知") +
+            " · 同组 #" +
+            m.rank
+          : "");
+      card.append(detail);
+      const h = human[g.id] ?? {};
+      card.append(
+        button("拆出连拍", () => {
+          if (busy) return;
+          g.manualSplit = true;
+          session.splits = [...new Set([...(session.splits ?? []), g.id])];
+          recompute();
+        }),
+        button(
+          h.favorite ? "★ 精选" : "☆ 精选",
+          () => void decide(g, "keep", !h.favorite),
+          h.favorite,
+        ),
+        button(
+          "保留",
+          () => void decide(g, "keep", h.favorite),
+          h.decision === "keep",
+        ),
+        button(
+          moreTools ? "暂不导出" : "不选",
+          () => void decide(g, "exclude", false),
+          h.decision === "exclude",
+        ),
+        button(
+          "稍后复核",
+          () => void decide(g, "review_later"),
+          h.decision === "review_later",
+        ),
+        button("恢复机器建议", () => void decide(g, "unreviewed")),
+      );
+      const actions = [...card.querySelectorAll("button")];
+      // The overlay toggle is separate from advanced review/compare controls.
+      for (const action of actions)
+        if (action !== selection) action.classList.add("advanced-control");
+      if (row.toggle) {
+        const toggle = button(
+          row.expanded ? "收起" : `${row.batch.length} 张`,
+          () => toggleBatch(row),
+        );
+        toggle.className = "batch-toggle";
+        toggle.dataset.batchKey = row.key;
+        toggle.setAttribute("aria-expanded", String(row.expanded));
+        toggle.setAttribute(
+          "aria-label",
+          row.expanded ? "收起这组" : `展开 ${row.batch.length} 张`,
+        );
+        if (!row.expanded) {
+          toggle.title = `${row.batch.length} 张 · 已选 ${row.batch.filter((x) => state(x) === "include").length}`;
+          media.append(toggle);
+        }
+      }
+      if (m?.portraitBatch && moreTools)
+        card.append(
+          button("看这组全部", () => {
+            const batch = batches.find((b) => b.some((x) => x.id === g.id));
+            portraitScope = new Set(batch.map((x) => x.id));
+            chosen.clear();
+            resetReviewScroll = true;
+            render();
+            $("portrait-scope").scrollIntoView({ block: "start" });
+            $("portrait-scope-close").focus({ preventScroll: true });
+          }),
+        );
+      parent.append(card);
+    }
+  }
+  if (range.bottomOffset) fragment.append(spacer(range.bottomOffset));
+  $("grid").classList.add("continuous-review");
+  $("grid").dataset.virtual = String(range.virtual);
+  $("grid").replaceChildren(fragment);
+  if (desiredScroll !== null) window.scrollTo({ top: desiredScroll });
+  rowNodes = nextNodes;
+  for (const card of $("grid").querySelectorAll(".card"))
+    effortController?.observeGrid(card, card.dataset.groupId);
+  if (focusId)
+    [...$("grid").querySelectorAll(".card")]
+      .find((c) => c.dataset.groupId === focusId)
+      ?.querySelector(focusSelector)
+      ?.focus({ preventScroll: true });
+  if (!scrollOnly) {
+    renderPlan();
+    updateViewerActions();
+  }
 }
+function ensureReviewPhoto(id, selection = false) {
+  if (!reviewSnapshot || $("results-space").hidden) return null;
+  const existing = [...$("grid").querySelectorAll(".card")].find(
+    (c) => c.dataset.groupId === id,
+  );
+  if (existing) {
+    existing.scrollIntoView({ block: "nearest" });
+    return existing.querySelector(
+      selection ? "[data-photo-select]" : "img,[data-photo-select]",
+    );
+  }
+  const { layout, range, gridTop } = reviewSnapshot;
+  const unit = unitForPhoto(layout.units, id);
+  if (unit < 0) return null;
+  const top = gridTop + range.offsets[unit],
+    bottom = gridTop + range.offsets[unit + 1];
+  if (top < scrollY || bottom > scrollY + innerHeight)
+    window.scrollTo({ top: Math.max(0, top - 90) });
+  render({ scrollOnly: true });
+  const card = [...$("grid").querySelectorAll(".card")].find(
+    (c) => c.dataset.groupId === id,
+  );
+  return card?.querySelector(
+    selection ? "[data-photo-select]" : "img,[data-photo-select]",
+  );
+}
+const scheduleReview = () => {
+  if (reviewFrame !== null || $("results-space").hidden) return;
+  reviewFrame = requestAnimationFrame(() => {
+    reviewFrame = null;
+    render({ scrollOnly: true });
+  });
+};
+window.addEventListener("scroll", scheduleReview, { passive: true });
+window.addEventListener("resize", () => {
+  if (reviewSnapshot && !$("results-space").hidden) {
+    const { range, layout, gridTop } = reviewSnapshot;
+    const i = range.offsets.findIndex(
+      (offset, j) =>
+        offset <= scrollY - gridTop && range.offsets[j + 1] > scrollY - gridTop,
+    );
+    const id = layout.units[Math.max(0, i)]?.cards?.[0]?.group.id;
+    if (id && range.virtual) {
+      render({
+        anchor: {
+          id,
+          top: gridTop + (range.offsets[Math.max(0, i)] ?? 0) - scrollY,
+        },
+      });
+      return;
+    }
+  }
+  scheduleReview();
+});
+new ResizeObserver(scheduleReview).observe($("grid"));
+$("grid").addEventListener("keydown", (event) => {
+  if (event.altKey || event.ctrlKey || event.metaKey || !reviewSnapshot) return;
+  const card = event.target.closest(".card");
+  if (!card) return;
+  const { rows, geometry } = reviewSnapshot;
+  const index = rows.findIndex((r) => r.group.id === card.dataset.groupId);
+  let next;
+  if (event.key === "ArrowRight") next = index + 1;
+  else if (event.key === "ArrowLeft") next = index - 1;
+  else if (event.key === "ArrowDown") next = index + geometry.columns;
+  else if (event.key === "ArrowUp") next = index - geometry.columns;
+  else if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = rows.length - 1;
+  else if (event.key === "Tab") {
+    const focusables = [
+      ...$("grid").querySelectorAll("img[tabindex],button"),
+    ].filter((n) => !n.disabled && n.getClientRects().length);
+    if (!event.shiftKey && event.target === focusables.at(-1)) next = index + 1;
+    if (event.shiftKey && event.target === focusables[0]) next = index - 1;
+  }
+  if (next == null || next < 0 || next >= rows.length) return;
+  event.preventDefault();
+  ensureReviewPhoto(
+    rows[next].group.id,
+    event.target.matches("[data-photo-select]"),
+  )?.focus({ preventScroll: true });
+});
 const acceptanceStatuses = [];
 for (const space of ["results", "export"]) {
   const status = document.createElement("p");
@@ -997,6 +1191,7 @@ function download(value, name, type = "application/json") {
 const zooms = [];
 let compared = [],
   compareGeneration = 0;
+let viewerOrder = [];
 function applyZoom() {
   for (const { zoom, img } of zooms) {
     img.style.transformOrigin = "0 0";
@@ -1009,12 +1204,19 @@ async function compare(list) {
   const generation = ++compareGeneration;
   const comparisonSession = session?.id;
   compared = list;
+  if (!$("compare").open) {
+    viewerOrder = (
+      reviewSnapshot?.rows.map((row) => row.group) ?? groups
+    ).filter((g) => g.source && g.analysis?.thumbnail);
+  }
   $("viewer-actions").hidden = list.length !== 1;
   updateViewerActions();
   zooms.length = 0;
   $("compare-images").replaceChildren();
   $("compare-images").className = list.length === 1 ? "single" : "";
-  if (!$("compare").open) $("compare").showModal();
+  if (!$("compare").open) {
+    $("compare").showModal();
+  }
   for (const g of list) {
     if (!g.source) continue;
     const frame = document.createElement("div");
@@ -1107,9 +1309,9 @@ async function compare(list) {
 function updateViewerActions() {
   const g = compared[0];
   if (!g || compared.length !== 1) return;
-  const index = groups.indexOf(g);
+  const index = viewerOrder.indexOf(g);
   $("viewer-prev").disabled = busy || index <= 0;
-  $("viewer-next").disabled = busy || index >= groups.length - 1;
+  $("viewer-next").disabled = busy || index >= viewerOrder.length - 1;
   $("viewer-keep").disabled = busy || pendingDecisions.has(g);
   $("viewer-exclude").disabled = busy || pendingDecisions.has(g);
   setSelectionControl($("viewer-select"), g);
@@ -1130,7 +1332,7 @@ function updateViewerActions() {
         : "自动";
 }
 function browseViewer(delta) {
-  const g = groups[groups.indexOf(compared[0]) + delta];
+  const g = viewerOrder[viewerOrder.indexOf(compared[0]) + delta];
   if (!busy && g) void compare([g]);
 }
 $("viewer-select").append(selectionIcon());
@@ -1163,9 +1365,11 @@ $("compare").addEventListener("close", () => {
     void document.exitFullscreen();
   ++compareGeneration;
   zooms.length = 0;
+  const returning = compared[0]?.id;
   compared = [];
   releaseComparison();
   render();
+  if (returning) ensureReviewPhoto(returning)?.focus({ preventScroll: true });
 });
 $("zoom-reset").onclick = () => {
   for (const { zoom } of zooms) zoom.reset();
@@ -1279,8 +1483,8 @@ document.addEventListener("keydown", (e) => {
     ["j", "k", "ArrowLeft", "ArrowRight"].includes(e.key)
   ) {
     e.preventDefault();
-    const index = groups.indexOf(g),
-      next = groups[index + (["j", "ArrowLeft"].includes(e.key) ? -1 : 1)];
+    const index = viewerOrder.indexOf(g),
+      next = viewerOrder[index + (["j", "ArrowLeft"].includes(e.key) ? -1 : 1)];
     if (next) void compare([next]);
   }
 });
@@ -1318,17 +1522,12 @@ $("mode").onchange = async () => {
 $("portrait-scope-close").onclick = () => {
   portraitScope = null;
   chosen.clear();
-  offset = 0;
+  resetReviewScroll = true;
   render();
 };
 $("filter").onchange = () => {
   portraitScope = null;
-  limit = 60;
-  offset = 0;
-  render();
-};
-$("more").onclick = () => {
-  offset = nextPageOffset(offset, visibleCount, limit);
+  resetReviewScroll = true;
   render();
 };
 function currentPlan() {
@@ -1609,7 +1808,7 @@ effortController = installReviewEffort({
   download,
   onStart: (role) => {
     $("filter").value = role === "baseline" ? "all" : "technical-review";
-    offset = 0;
+    resetReviewScroll = true;
     show("results");
   },
 });

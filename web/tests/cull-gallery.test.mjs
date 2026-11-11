@@ -71,3 +71,19 @@ test("unselected and unknown batches stay reachable, filtered groups do not leak
     4,
   );
 });
+
+test("ambiguous image versions form an expandable review stack without becoming selected", () => {
+  const rec = Object.fromEntries(
+    groups.map((g, i) => [
+      g.id,
+      { similarityKind: "same-image-version", rank: i + 1 },
+    ]),
+  );
+  const state = () => "protected";
+  const rows = galleryRows(groups, [groups], rec, state);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].batch.length, 4);
+  const expanded = galleryRows(groups, [groups], rec, state, new Set(["a"]));
+  assert.equal(expanded.length, 4);
+  assert.ok(expanded.every((r) => state(r.group) === "protected"));
+});

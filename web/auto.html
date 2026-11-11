@@ -145,31 +145,35 @@
         <p id="simple-result-guide">
           可以直接采用推荐，也可以点击照片放大；想改选时点“保留”或“暂不导出”。
         </p>
-        <p id="gallery-summary" tabindex="-1"></p>
-        <div id="stats" class="stats"></div>
-        <div class="toolbar">
-          <button id="accept">接受整批推荐</button
-          ><button id="undo-accept" class="advanced-control">
-            取消本批采纳
-          </button>
-          <div id="gallery-filters">
-            <button data-gallery-filter="shortlist" aria-pressed="false">
-              推荐与待复核</button
-            ><button data-gallery-filter="all" aria-pressed="true">
-              全部照片
+        <div id="review-toolbar">
+          <p id="gallery-summary" tabindex="-1"></p>
+          <div id="stats" class="stats"></div>
+          <div class="toolbar">
+            <button id="accept">接受整批推荐</button
+            ><button id="undo-accept" class="advanced-control">
+              取消本批采纳
+            </button>
+            <div id="gallery-filters">
+              <button data-gallery-filter="shortlist" aria-pressed="false">
+                推荐与待复核</button
+              ><button data-gallery-filter="all" aria-pressed="true">
+                全部照片
+              </button>
+            </div>
+            <label class="advanced-control"
+              >显示
+              <select id="filter">
+                <option value="shortlist">推荐与待复核</option>
+                <option value="all" selected>全部照片</option>
+                <option value="suppress">暂不导出</option>
+                <option class="advanced-control" value="favorite">★精选</option>
+                <option class="advanced-control" value="burst">连拍组</option>
+              </select></label
+            ><button id="compare-two" class="advanced-control">双图 A/B</button
+            ><button id="compare-four" class="advanced-control">
+              四图比较
             </button>
           </div>
-          <label class="advanced-control"
-            >显示
-            <select id="filter">
-              <option value="shortlist">推荐与待复核</option>
-              <option value="all" selected>全部照片</option>
-              <option value="suppress">暂不导出</option>
-              <option class="advanced-control" value="favorite">★精选</option>
-              <option class="advanced-control" value="burst">连拍组</option>
-            </select></label
-          ><button id="compare-two" class="advanced-control">双图 A/B</button
-          ><button id="compare-four" class="advanced-control">四图比较</button>
         </div>
         <p class="advanced-control">
           勾选 2–4 张比较；点击图片单图查看。J/K 前后浏览，1 精选，Esc
@@ -180,7 +184,6 @@
           <button id="portrait-scope-close">返回全部照片</button>
         </p>
         <div id="grid" class="grid"></div>
-        <button id="more" hidden>再显示 60 组</button>
       </section>
       <section id="export-space" hidden>
         <button id="gallery-back">← 返回照片</button>

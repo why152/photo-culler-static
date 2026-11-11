@@ -11,7 +11,7 @@ export function galleryRows(
     if (
       batch.length < 2 ||
       !batch.every((g) =>
-        ["exact", "burst"].includes(recommendations[g.id]?.similarityKind),
+        ["exact", "burst", "same-image-version"].includes(recommendations[g.id]?.similarityKind),
       )
     )
       continue;

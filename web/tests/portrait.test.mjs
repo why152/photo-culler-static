@@ -223,3 +223,101 @@ test("disabled or unavailable portrait evidence reproduces frozen beta4 recommen
     normalize(baseline(frames, { strength: "compact" })),
   );
 });
+
+test("resized distinct captures remain a burst only with complete-link scene evidence; edit copies stay protected", () => {
+  const orb = () => ({
+    count: 16,
+    descriptors: Uint8Array.from(
+      { length: 512 },
+      (_, i) => (i * 37 + Math.floor(i / 32) * 71) % 256,
+    ),
+  });
+  const a = frame("a", 1000),
+    b = frame("b", 1500),
+    c = frame("c", 2000);
+  for (const g of [a, b, c]) g.analysis.portrait.orb = orb();
+  b.analysis.sourceDimensions = { width: 900, height: 600 };
+  let result = rank([a, b, c], {
+    portrait: true,
+    mode: "burst",
+    strength: "compact",
+    portraitKeep: 1,
+  });
+  assert.equal(result.recommendations.a.similarityKind, "burst");
+  assert.equal(
+    Object.values(result.recommendations).filter((r) => r.plan === "include")
+      .length,
+    1,
+  );
+  b.metadata.capturedAt = a.metadata.capturedAt;
+  result = rank([a, b, c], { portrait: true, mode: "burst" });
+  assert.equal(result.recommendations.a.similarityKind, "same-image-version");
+  assert.ok(
+    Object.values(result.recommendations).every((r) => r.plan === "protected"),
+  );
+  b.metadata.capturedAt = 1500;
+  b.analysis.portrait.orb = null;
+  result = rank([a, b], { portrait: true, mode: "burst" });
+  assert.equal(result.recommendations.a.similarityKind, "same-image-version");
+});
+
+test("very close captures tolerate face-hash jitter only when full-frame ORB and geometry strongly agree", () => {
+  const makeOrb = () => ({
+    count: 16,
+    descriptors: Uint8Array.from(
+      { length: 512 },
+      (_, i) => (i * 37 + Math.floor(i / 32) * 71) % 256,
+    ),
+  });
+  const a = frame("a", 1000),
+    b = frame("b", 1500, "00000000000000ff");
+  a.analysis.portrait.orb = makeOrb();
+  b.analysis.portrait.orb = makeOrb();
+  b.analysis.portrait.faces[0].hash = "000000000fffffff";
+  assert.equal(cluster([a, b], { portrait: true }).length, 1);
+  b.metadata.capturedAt = 5000;
+  assert.equal(cluster([a, b], { portrait: true }).length, 2);
+  b.metadata.capturedAt = 1500;
+  b.analysis.portrait.orb = null;
+  assert.equal(cluster([a, b], { portrait: true }).length, 2);
+  b.analysis.portrait.orb = makeOrb();
+  b.analysis.portrait.faces[0].box.x = 0.65;
+  assert.equal(cluster([a, b], { portrait: true }).length, 2);
+});
+
+test("fluctuating detector counts can form a strong scene stack, but uncertain alternatives are not suppressed", () => {
+  const makeOrb = () => ({
+    count: 16,
+    descriptors: Uint8Array.from(
+      { length: 512 },
+      (_, i) => (i * 37 + Math.floor(i / 32) * 71) % 256,
+    ),
+  });
+  const a = frame("a", 1000),
+    b = frame("b", 1500, "00000000000000ff");
+  a.analysis.portrait.orb = makeOrb();
+  b.analysis.portrait.orb = makeOrb();
+  b.analysis.portrait.faces.push(structuredClone(b.analysis.portrait.faces[0]));
+  const r = rank([a, b], {
+    portrait: true,
+    mode: "burst",
+    strength: "compact",
+  });
+  assert.equal(r.batches.length, 1);
+  assert.equal(
+    Object.values(r.recommendations).filter((x) => x.plan === "include").length,
+    1,
+  );
+  assert.equal(
+    Object.values(r.recommendations).filter((x) => x.plan === "protected")
+      .length,
+    1,
+  );
+  assert.equal(
+    Object.values(r.recommendations).filter((x) => x.plan === "suppress")
+      .length,
+    0,
+  );
+  for (const f of b.analysis.portrait.faces) f.hash = "ffffffffffffffff";
+  assert.equal(cluster([a, b], { portrait: true }).length, 2);
+});
