@@ -427,7 +427,11 @@ test("favorite-filtered paging wraps 90 results instead of using the whole inven
   });
   await page.reload();
   await page.locator("#sessions button").first().click();
-  await expect(page.locator("#global")).toContainText("本地分析完成");
+  // This regression adds120 uncached sources; automatic local inference must finish
+  // before paging is asserted. The default5s expectation is not a scan-time budget.
+  await expect(page.locator("#global")).toContainText("本地分析完成", {
+    timeout: 30000,
+  });
   await page.locator("#filter").selectOption("favorite");
   await expect(page.locator(".card")).toHaveCount(60);
   await page.locator("#more").click();
